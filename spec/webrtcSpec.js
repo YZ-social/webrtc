@@ -1,6 +1,5 @@
 const { describe, it, expect, beforeAll, afterAll, beforeEach, afterEach} = globalThis; // For linters.
-import { WebRTC, PromiseWebRTC } from '../index.js';
-import { TrickleWebRTC } from '../lib/tricklewebrtc.js';
+import { WebRTC, PromiseWebRTC, TrickleWebRTC } from '../index.js';
 
 class DirectSignaling extends WebRTC {
   signal(type, message) { // Just invoke the method directly on the otherSide.
@@ -11,6 +10,15 @@ class DirectSignaling extends WebRTC {
 function delay(ms) {
   return new Promise(resolve => setTimeout(resolve, ms));
 }
+async function fetchSignals(url, signalsToSend) {
+  const response = await fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(signalsToSend)
+  });
+  return await response.json();
+}
+function map(signals) { return signals?.map?.(s => s[0]); }
 
 describe("WebRTC", function () {
   describe("connection to server", function () {
@@ -19,12 +27,7 @@ describe("WebRTC", function () {
       beforeAll(async function () {
 	connection = PromiseWebRTC.ensure({serviceLabel: 'PromiseClient'});
 	const dataChannelPromise = connection.ensureDataChannel('echo');
-	const response = await fetch("http://localhost:3000/test/promise/echo/foo", {
-	  method: 'POST',
-	  headers: { 'Content-Type': 'application/json' },
-	  body: JSON.stringify(await connection.signals)
-	});
-	connection.signals = await response.json();
+	connection.signals = await fetchSignals("http://localhost:3000/test/promise/echo/foo", await connection.signals);
 	dataChannel = await dataChannelPromise;
 	connection.reportConnection(true);
       });
@@ -37,17 +40,28 @@ describe("WebRTC", function () {
 	expect(await echoPromise).toBe('hello');
       });
     });
-    xdescribe("using trickle ICE", function () {
+    describe("using trickle ICE", function () {
       let connection, dataChannel;
       beforeAll(async function () {
-	connection = PromiseWebRTC.ensure({serviceLabel: 'Client'});
+	connection = TrickleWebRTC.ensure({serviceLabel: 'Client'});
 	const dataChannelPromise = connection.ensureDataChannel('echo');
-	const response = await fetch("http://localhost:3000/test/trickle/echo/foo", {
-	  method: 'POST',
-	  headers: { 'Content-Type': 'application/json' },
-	  body: JSON.stringify(await connection.signals)
-	});
-	connection.signals = await response.json();
+	await connection.signals;
+	async function exchange() {
+	  if (connection.peer.iceGatheringState !== 'gathering') return;
+	  const sending = connection.sending;
+	  connection.sending = [];
+
+	  console.log('client sending', map(sending));
+	  const returning = await fetchSignals("http://localhost:3000/test/trickle/echo/foo", sending);
+
+	  if (!returning?.length) return;
+	  //if (a.connection.peer.iceGatheringState !== 'gathering') return;
+	  console.log('client', 'received', map(returning), connection.peer.iceGatheringState);
+	  connection.signals = returning;
+	  exchange();
+	}
+	exchange();
+	
 	dataChannel = await dataChannelPromise;
 	connection.reportConnection(true);
       });
@@ -73,38 +87,91 @@ describe("WebRTC", function () {
 	  a.connection = Kind.ensure({serviceLabel: 'A'+Kind.name, debug});
 	  b.connection = Kind.ensure({serviceLabel: 'B'+Kind.name, debug});
 
-	  // Required for DirectSignaling signal(), above. Ignored for PromiseWebRTC.
+	  // Required only for DirectSignaling signal(), above. Ignored for others.
 	  a.connection.otherSide = b.connection;
 	  b.connection.otherSide = a.connection;    
 
-	  const aPromise = a.connection.signals;
+	  let aPromise = a.connection.signals;
 	  a.dataChannelPromise = a.connection.ensureDataChannel(channelName, channelOptions);
 	  const aSignals = await aPromise;
-	  const aNext = a.connection.signals;
+	  a.connection.sending = [];
+	  //console.log(Kind.name, 'aSignals:', map(aSignals));
 
 	  // The second peer on the initial negotiation must specify a non-empty signals --
 	  // either an empty list for trickle-ice, or a list of the actual signals from the PromiseWebRTC.
 
-	  const bPromise = b.connection.signals;
+	  b.next = b.connection.signals;
+	  // let bPromise = b.connection.signals;
+	  // aPromise = a.connection.signals;
 	  b.dataChannelPromise = b.connection.ensureDataChannel(channelName, channelOptions, aSignals);
-	  const bSignals = await bPromise;
-	  const bNext = b.connection.signals;
+	  // const bSignals = await bPromise;
+	  // console.log(Kind.name, 'bSignals:', map(bSignals));
 
-	  a.connection.signals = bSignals;
+	  // bPromise = b.connection.signals;
+	  // a.connection.signals = bSignals;
+
+	  async function exchange() {
+	    if (a.connection.peer.iceGatheringState !== 'gathering') return;
+	    const sending = a.connection.sending;
+	    a.connection.sending = [];
+
+	    console.log(Kind.name, 'sending', map(sending), b.connection.peer.iceGatheringState);
+	    b.connection.signals = sending;
+	    const returning = await Promise.race([b.next, b.dataChannelPromise]);
+	    b.next = b.connection.signals;
+
+	    if (!returning?.length) return;
+	    //if (a.connection.peer.iceGatheringState !== 'gathering') return;
+	    console.log(Kind.name, 'received', map(returning), a.connection.peer.iceGatheringState);
+	    a.connection.signals = returning;
+	    exchange();
+	  }
+	  exchange();
 
 	  // Only needed in the trickle ice case. Harmless otherwise.
 	  async function conveySignals(from, to, promise) {
-	    if (from.peer.iceGatheringState !== 'gathering') return;
-	    const signals = await promise;
-	    const next = from.signals;
-	    to.signals = signals;
+	    const state = from.peer.iceGatheringState;
+	    if (state !== 'gathering') {
+	      console.log(Kind.name, from.label, state, 'skipping');
+	      return;
+	    }
+	    console.log(Kind.name, from.label, state, from.peer.iceConnectionState, from.peer.connectionState, from.peer.signalingState, 'waiting');
+	    const signals = await Promise.race([promise,
+						from === a.connection ? a.dataChannelPromise : b.dataChannelPromise,
+					       ]); // 7     |      f
+	    console.log(Kind.name, from.label, 'resolved:', map(signals));
+	    const next = from.signals;     // 8     |      g
+	    if (!signals?.length) return;
+	    to.signals = signals;          // d     |       h
 	    conveySignals(from, to, next);
 	  }
-	  conveySignals(a.connection, b.connection, aNext);
-	  conveySignals(b.connection, a.connection, bNext);
+	  // conveySignals(a.connection, b.connection, aNext); //6.5
+	  // conveySignals(b.connection, a.connection, bNext);
 
+	  async function push() { // Await signals in a and send them to b.
+	    if (a.connection.peer.iceGatheringState !== 'gathering') return;
+	    const signals = await Promise.race([aPromise, a.dataChannelPromise]);
+	    aPromise = a.connection.signals;
+	    if (!signals.length) return;
+	    console.log(Kind.name, 'pushing', map(signals));
+	    b.connection.signals = signals;
+	    push();
+	  }
+	  async function pull(promise) { // Request signals from b, setting whatever we get.
+	    if (a.connection.peer.iceGatheringState !== 'gathering') return;	    
+	    const signals = await Promise.race([bPromise, b.dataChannelPromise]);
+	    bPromise = b.connection.signals;
+	    if (!signals.length) return;
+	    console.log(Kind.name, 'pulling', map(signals));
+	    a.connection.signals = signals;
+	    pull();
+	  }
+	  //push();
+	  //pull();
+	  
 	  a.testChannel = await a.dataChannelPromise;
 	  b.testChannel = await b.dataChannelPromise;
+
 	  await a.connection.reportConnection(true);
 	  await b.connection.reportConnection(true);
 	});
