@@ -12,20 +12,23 @@
   "imports": {
     "#wrtc": {
       "node": "@roamhq/wrtc",
-      "default": "./lib/browser-wrtc.mjs"
+      "default": "./lib/browser-wrtc.js"
     }
   },
   "exports": {
     ".": "./index.mjs",
-    "./router": "./lib/router.mjs"
+    "./router": "./lib/router.js"
   },
   "scripts": {
-    "test": "npx jasmine"
+    "test": "npx jasmine",
+    "testServer": "node testServer.js",
+    "stopServer": "pkill webrtcTestServer"
   },
   "dependencies": {
     "@roamhq/wrtc": "^0.9.1"
   },
-  "dev-dependencies": {
+  "devDependencies": {
+    "express": "^5.2.1",
     "jasmine": "^5.12.0"
   }
 }
