@@ -30,5 +30,12 @@
   "devDependencies": {
     "express": "^5.2.1",
     "jasmine": "^5.12.0"
-  }
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/kilroy-code/flexstore.git"
+  },
+  "publishConfig": {
+    "registry": "https://npm.pkg.github.com"
+  }  
 }
