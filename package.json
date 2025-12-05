@@ -36,6 +36,6 @@
     "url": "git+https://github.com/kilroy-code/flexstore.git"
   },
   "publishConfig": {
-    "registry": "https://npm.pkg.github.com"
+    "registry": "https://registry.npmjs.org"
   }  
 }
