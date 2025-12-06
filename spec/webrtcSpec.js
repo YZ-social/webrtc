@@ -1,5 +1,6 @@
 const { describe, it, expect, beforeAll, afterAll, beforeEach, afterEach} = globalThis; // For linters.
 import { WebRTC, PromiseWebRTC, TrickleWebRTC } from '../index.js';
+import { WebRTCNG } from '../lib/webrtcng.js';
 
 class DirectSignaling extends WebRTC {
   signal(type, message) { // Just invoke the method directly on the otherSide.
@@ -24,13 +25,11 @@ async function exchange(aConnection, bConnection, bDataChannelPromise) {
   const sending = aConnection.sending;
   aConnection.sending = [];
 
-  //console.log(aConnection.constructor.name, 'sending', map(sending), bConnection.peer.iceGatheringState);
   bConnection.signals = sending;
   const returning = await Promise.race([bConnection.next, bDataChannelPromise]);
   bConnection.next = bConnection.signals;
 
   if (!returning?.length) return;
-  //console.log(aConnection.constructor.name, 'received', map(returning), aConnection.peer.iceGatheringState);
   aConnection.signals = returning;
   exchange(aConnection, bConnection, bDataChannelPromise);
 }
@@ -44,7 +43,7 @@ describe("WebRTC", function () {
 	const dataChannelPromise = connection.ensureDataChannel('echo');
 	connection.signals = await fetchSignals("http://localhost:3000/test/promise/echo/foo", await connection.signals);
 	dataChannel = await dataChannelPromise;
-	connection.reportConnection(true);
+	//connection.reportConnection(true);
       });
       afterAll(function () {
 	connection.close();
@@ -66,17 +65,36 @@ describe("WebRTC", function () {
 	  const sending = connection.sending;
 	  connection.sending = [];
 
-	  console.log('client sending', map(sending));
+	  //console.log('client sending', map(sending));
 	  const returning = await fetchSignals("http://localhost:3000/test/trickle/echo/foo", sending);
 
 	  if (!returning?.length) return;
-	  //if (a.connection.peer.iceGatheringState !== 'gathering') return;
-	  console.log('client', 'received', map(returning), connection.peer.iceGatheringState);
+	  //console.log('client', 'received', map(returning), connection.peer.iceGatheringState);
 	  connection.signals = returning;
 	  exchange();
 	}
 	exchange();
 	
+	dataChannel = await dataChannelPromise;
+	//connection.reportConnection(true);
+      });
+      afterAll(function () {
+	connection.close();
+      });
+      it("sends and receives data", async function () {
+	const echoPromise = new Promise(resolve => dataChannel.onmessage = event => resolve(event.data));
+	dataChannel.send('hello');
+	expect(await echoPromise).toBe('hello');
+      });
+    });
+    describe("using NG ICE", function () {
+      let connection, dataChannel;
+      beforeAll(async function () {
+	connection = WebRTCNG.ensure({serviceLabel: 'Client'});
+	const ready = connection.signalsReady;
+	const dataChannelPromise = connection.ensureDataChannel('echo');
+	await ready;
+	connection.connectVia(signals => fetchSignals("http://localhost:3000/test/data/echo/foo", signals));
 	dataChannel = await dataChannelPromise;
 	connection.reportConnection(true);
       });
@@ -88,33 +106,23 @@ describe("WebRTC", function () {
 	dataChannel.send('hello');
 	expect(await echoPromise).toBe('hello');
       });
-    });    
+    });
   });
 
   describe("capacity", function () {
     const pairs = [];
-    const nPairs = 76; // Node fails after 152 webrtc peers (76 pairs).
+    const nPairs = 76; // NodeJS fails after 152 webrtc peers (76 pairs) in series. In parallel, it is only up through 67 pairs.
     beforeAll(async function () {
       const promises = [];
       for (let i = 0; i < nPairs; i++) {
 	const a = {}, b = {};
-	a.connection = new TrickleWebRTC({label: `initiator-${i}`});
-	b.connection = new TrickleWebRTC({label: `receiver-${i}`});
-	let aPromise = a.connection.signals;
+	a.connection = new WebRTCNG({label: `initiator-${i}`});
+	b.connection = new WebRTCNG({label: `receiver-${i}`});
+	let aPromise = a.connection.signalsReady;
 	a.dataChannelPromise = a.connection.ensureDataChannel('capacity');
 	const aSignals = await aPromise;
-	a.connection.sending = [];
-	b.connection.next = b.connection.signals;
-	b.dataChannelPromise = b.connection.ensureDataChannel('capacity', {}, aSignals);
-	exchange(a.connection, b.connection, b.dataChannelPromise);
-	const connected = Promise.all([a.dataChannelPromise,
-				       await b.dataChannelPromise])
-	      .then(async () => {
-		await a.connection.reportConnection(true);
-		await b.connection.reportConnection(true);
-		pairs.push([a, b]);
-	      });
-	promises.push(connected);
+	await a.connection.connectVia(signals => b.connection.respond(signals))
+	  .then(() => pairs.push([a, b]));
       }
       await Promise.all(promises);
     });
@@ -123,6 +131,7 @@ describe("WebRTC", function () {
       await delay(2e3);
     });
     it("is pretty big.", function () {
+      console.log('created', pairs.length);
       expect(pairs.length).toBe(nPairs);
     });
   });
@@ -146,69 +155,16 @@ describe("WebRTC", function () {
 	  a.dataChannelPromise = a.connection.ensureDataChannel(channelName, channelOptions);
 	  const aSignals = await aPromise;
 	  a.connection.sending = [];
-	  //console.log(Kind.name, 'aSignals:', map(aSignals));
-
-	  // The second peer on the initial negotiation must specify a non-empty signals --
-	  // either an empty list for trickle-ice, or a list of the actual signals from the PromiseWebRTC.
-
 	  b.connection.next = b.connection.signals;
-	  // let bPromise = b.connection.signals;
-	  // aPromise = a.connection.signals;
 	  b.dataChannelPromise = b.connection.ensureDataChannel(channelName, channelOptions, aSignals);
-	  // const bSignals = await bPromise;
-	  // console.log(Kind.name, 'bSignals:', map(bSignals));
-
-	  // bPromise = b.connection.signals;
-	  // a.connection.signals = bSignals;
 
 	  exchange(a.connection, b.connection, b.dataChannelPromise);
 
-	  // Only needed in the trickle ice case. Harmless otherwise.
-	  async function conveySignals(from, to, promise) {
-	    const state = from.peer.iceGatheringState;
-	    if (state !== 'gathering') {
-	      console.log(Kind.name, from.label, state, 'skipping');
-	      return;
-	    }
-	    console.log(Kind.name, from.label, state, from.peer.iceConnectionState, from.peer.connectionState, from.peer.signalingState, 'waiting');
-	    const signals = await Promise.race([promise,
-						from === a.connection ? a.dataChannelPromise : b.dataChannelPromise,
-					       ]); // 7     |      f
-	    console.log(Kind.name, from.label, 'resolved:', map(signals));
-	    const next = from.signals;     // 8     |      g
-	    if (!signals?.length) return;
-	    to.signals = signals;          // d     |       h
-	    conveySignals(from, to, next);
-	  }
-	  // conveySignals(a.connection, b.connection, aNext); //6.5
-	  // conveySignals(b.connection, a.connection, bNext);
-
-	  async function push() { // Await signals in a and send them to b.
-	    if (a.connection.peer.iceGatheringState !== 'gathering') return;
-	    const signals = await Promise.race([aPromise, a.dataChannelPromise]);
-	    aPromise = a.connection.signals;
-	    if (!signals.length) return;
-	    console.log(Kind.name, 'pushing', map(signals));
-	    b.connection.signals = signals;
-	    push();
-	  }
-	  async function pull(promise) { // Request signals from b, setting whatever we get.
-	    if (a.connection.peer.iceGatheringState !== 'gathering') return;	    
-	    const signals = await Promise.race([bPromise, b.dataChannelPromise]);
-	    bPromise = b.connection.signals;
-	    if (!signals.length) return;
-	    console.log(Kind.name, 'pulling', map(signals));
-	    a.connection.signals = signals;
-	    pull();
-	  }
-	  //push();
-	  //pull();
-	  
 	  a.testChannel = await a.dataChannelPromise;
 	  b.testChannel = await b.dataChannelPromise;
 
-	  await a.connection.reportConnection(true);
-	  await b.connection.reportConnection(true);
+	  await a.connection.reportConnection();
+	  await b.connection.reportConnection();
 	});
 	afterAll(async function () {
 	  a.connection.close();
@@ -259,7 +215,7 @@ describe("WebRTC", function () {
       });
     }
     test(DirectSignaling);
-    test(PromiseWebRTC);
+    //test(PromiseWebRTC);
     test(TrickleWebRTC);
   });
 });

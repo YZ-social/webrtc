@@ -1,8 +1,9 @@
 import express from 'express';
 import { PromiseWebRTC, TrickleWebRTC } from '../index.js';
+import { WebRTCNG } from '../lib/webrtcng.js';
 export const router = express.Router();
-
-const testConnections = {}; // Is it really necessary to keep these around, against garbage collection?
+ 
+ const testConnections = {}; // Is it really necessary to keep these around, against garbage collection?
 router.post('/promise/echo/:tag', async (req, res, next) => { // Test endpoint for WebRTC.
   // Client posts collected signal data to us.
   // We create a WebRTC connection here with the given tag, and answer our response signals.
@@ -33,12 +34,44 @@ router.post('/trickle/echo/:tag', async (req, res, next) => { // Test endpoint f
   const tag = params.tag;
   const incomingSignals = body;
   let connection = testConnections[tag];
-  console.log('post connection:', !!connection, 'incoming:', incomingSignals.map(s => s[0]));
+  //console.log('post connection:', !!connection, 'incoming:', incomingSignals.map(s => s[0]));
   if (!connection) {
     connection = testConnections[tag] = TrickleWebRTC.ensure({serviceLabel: tag});
     const timer = setTimeout(() => connection.close(), 15e3);
-    console.log('created connection and applying', incomingSignals.map(s => s[0]));
+    //console.log('created connection and applying', incomingSignals.map(s => s[0]));
     connection.next = connection.signals;
+    const dataPromise = connection.dataChannelPromise = connection.ensureDataChannel('echo', {}, incomingSignals);
+    dataPromise.then(dataChannel => {
+      //connection.reportConnection(true);
+      dataChannel.onclose = () => {
+	clearTimeout(timer);
+	connection.close();
+	delete testConnections[tag];
+      };
+      dataChannel.onmessage = event => dataChannel.send(event.data); // Just echo what we are given.
+    });
+  } else {
+    //console.log('applying incoming signals');
+    connection.signals = incomingSignals;
+  }
+  //console.log('awaiting response');
+  const responseSignals = await Promise.race([connection.next, connection.dataChannelPromise]);
+  connection.next = connection.signals;
+  //console.log('responding', responseSignals.map(s => s[0]));
+  res.send(responseSignals); // Send back our signalling answer+ice.
+});
+
+router.post('/data/echo/:tag', async (req, res, next) => { // Test endpoint for WebRTC.
+  const {params, body} = req;
+  const tag = params.tag;
+  const incomingSignals = body;
+  let connection = testConnections[tag];
+  console.log('post connection:', !!connection, 'incoming:', incomingSignals.map(s => s[0]));
+  if (!connection) {
+    connection = testConnections[tag] = new WebRTCNG({label: tag});
+    const timer = setTimeout(() => connection.close(), 15e3);
+    console.log('created connection and applying', incomingSignals.map(s => s[0]));
+    const promise = connection.signalsReady;
     const dataPromise = connection.dataChannelPromise = connection.ensureDataChannel('echo', {}, incomingSignals);
     dataPromise.then(dataChannel => {
       connection.reportConnection(true);
@@ -49,13 +82,11 @@ router.post('/trickle/echo/:tag', async (req, res, next) => { // Test endpoint f
       };
       dataChannel.onmessage = event => dataChannel.send(event.data); // Just echo what we are given.
     });
-  } else {
-    console.log('applying incoming signals');
-    connection.signals = incomingSignals;
+    await promise;
+    res.send(connection.signals);
+    return;
   }
-  console.log('awaiting response');
-  const responseSignals = await Promise.race([connection.next, connection.dataChannelPromise]);
-  connection.next = connection.signals;
-  console.log('responding', responseSignals.map(s => s[0]));
-  res.send(responseSignals); // Send back our signalling answer+ice.
+  console.log('applying incoming signals');
+  res.send(await connection.respond(incomingSignals));
 });
+
