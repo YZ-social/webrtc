@@ -1,8 +1,7 @@
 const { describe, it, expect, beforeAll, afterAll, beforeEach, afterEach} = globalThis; // For linters.
-import { WebRTC, PromiseWebRTC, TrickleWebRTC } from '../index.js';
-import { WebRTCNG } from '../lib/webrtcng.js';
+import { WebRTC, WebRTCBase } from '../index.js';
 
-class DirectSignaling extends WebRTC {
+class DirectSignaling extends WebRTCBase {
   signal(type, message) { // Just invoke the method directly on the otherSide.
     this.otherSide[type](message);
   }
@@ -19,155 +18,20 @@ async function fetchSignals(url, signalsToSend) {
   });
   return await response.json();
 }
-function map(signals) { return signals?.map?.(s => s[0]); }
-async function exchange(aConnection, bConnection, bDataChannelPromise) {
-  if (aConnection.peer.iceGatheringState !== 'gathering') return;
-  const sending = aConnection.sending;
-  aConnection.sending = [];
-
-  bConnection.signals = sending;
-  const returning = await Promise.race([bConnection.next, bDataChannelPromise]);
-  bConnection.next = bConnection.signals;
-
-  if (!returning?.length) return;
-  aConnection.signals = returning;
-  exchange(aConnection, bConnection, bDataChannelPromise);
-}
 
 describe("WebRTC", function () {
-  describe("connection to server", function () {
-    describe("using NG ICE", function () {
-      let connection, dataChannel;
-      beforeAll(async function () {
-	connection = WebRTCNG.ensure({serviceLabel: 'Client'});
-	const ready = connection.signalsReady;
-	const dataChannelPromise = connection.ensureDataChannel('echo');
-	await ready;
-	connection.connectVia(signals => fetchSignals("http://localhost:3000/test/data/echo/foo", signals));
-	dataChannel = await dataChannelPromise;
-	connection.reportConnection(true);
-      });
-      afterAll(function () {
-	connection.close();
-      });
-      it("sends and receives data", async function () {
-	const echoPromise = new Promise(resolve => dataChannel.onmessage = event => resolve(event.data));
-	dataChannel.send('hello');
-	expect(await echoPromise).toBe('hello');
-      });
-    });
-    // describe("using PromiseWebRTC", function () {
-    //   let connection, dataChannel;
-    //   beforeAll(async function () {
-    // 	connection = PromiseWebRTC.ensure({serviceLabel: 'PromiseClient'});
-    // 	const dataChannelPromise = connection.ensureDataChannel('echo');
-    // 	connection.signals = await fetchSignals("http://localhost:3000/test/promise/echo/foo", await connection.signals);
-    // 	dataChannel = await dataChannelPromise;
-    // 	//connection.reportConnection(true);
-    //   });
-    //   afterAll(function () {
-    // 	connection.close();
-    //   });
-    //   it("sends and receives data", async function () {
-    // 	const echoPromise = new Promise(resolve => dataChannel.onmessage = event => resolve(event.data));
-    // 	dataChannel.send('hello');
-    // 	expect(await echoPromise).toBe('hello');
-    //   });
-    // });
-    
-    // describe("using trickle ICE", function () {
-    //   let connection, dataChannel;
-    //   beforeAll(async function () {
-    // 	connection = TrickleWebRTC.ensure({serviceLabel: 'Client'});
-    // 	const dataChannelPromise = connection.ensureDataChannel('echo');
-    // 	await connection.signals;
-    // 	async function exchange() {
-    // 	  if (connection.peer.iceGatheringState !== 'gathering') return;
-    // 	  const sending = connection.sending;
-    // 	  connection.sending = [];
-
-    // 	  //console.log('client sending', map(sending));
-    // 	  const returning = await fetchSignals("http://localhost:3000/test/trickle/echo/foo", sending);
-
-    // 	  if (!returning?.length) return;
-    // 	  //console.log('client', 'received', map(returning), connection.peer.iceGatheringState);
-    // 	  connection.signals = returning;
-    // 	  exchange();
-    // 	}
-    // 	exchange();
-	
-    // 	dataChannel = await dataChannelPromise;
-    // 	//connection.reportConnection(true);
-    //   });
-    //   afterAll(function () {
-    // 	connection.close();
-    //   });
-    //   it("sends and receives data", async function () {
-    // 	const echoPromise = new Promise(resolve => dataChannel.onmessage = event => resolve(event.data));
-    // 	dataChannel.send('hello');
-    // 	expect(await echoPromise).toBe('hello');
-    //   });
-    // });
-  });
-
-  describe("capacity", function () {
-    const pairs = [];
-    const nPairs = 76; // NodeJS fails after 152 webrtc peers (76 pairs) in series. In parallel, it is only up through 67 pairs.
-    beforeAll(async function () {
-      const promises = [];
-      for (let i = 0; i < nPairs; i++) {
-	const a = {}, b = {};
-	a.connection = new WebRTCNG({label: `initiator-${i}`});
-	b.connection = new WebRTCNG({label: `receiver-${i}`});
-	let aPromise = a.connection.signalsReady;
-	a.dataChannelPromise = a.connection.ensureDataChannel('capacity');
-	const aSignals = await aPromise;
-	await a.connection.connectVia(signals => b.connection.respond(signals))
-	  .then(() => pairs.push([a, b]));
-      }
-      await Promise.all(promises);
-    });
-    afterAll(async function () {
-      for (const [a] of pairs) a.connection.close();
-      await delay(2e3);
-    });
-    it("is pretty big.", function () {
-      console.log('created', pairs.length);
-      expect(pairs.length).toBe(nPairs);
-    });
-  });
 	
   describe("connection between two peers on the same computer", function () {
-    function test(Kind) {
+    const channelName = 'test';
+    function test(Kind, connect) {
       describe(Kind.name, function () {
 	let a = {}, b = {};
-	const channelName = 'test';
 	beforeAll(async function () {
 	  const debug = false;
 	  a.connection = Kind.ensure({serviceLabel: 'A'+Kind.name, debug});
 	  b.connection = Kind.ensure({serviceLabel: 'B'+Kind.name, debug});
 
-	  // Required only for DirectSignaling signal(), above. Ignored for others.
-	  a.connection.otherSide = b.connection;
-	  b.connection.otherSide = a.connection;
-
-	  const aStarted = a.connection.signalsReady;
-	  a.dataChannelPromise = a.connection.ensureDataChannel(channelName);
-	  await aStarted;
-	  const bStarted = b.connection.signalsReady;
-	  b.dataChannelPromise = b.connection.ensureDataChannel(channelName, {}, await a.connection.signals);
-	  await bStarted;
-	  a.connection.signals = b.connection.signals;
-	  await a.connection.connectVia(signals => b.connection.respond(signals));
-
-	  // let aPromise = a.connection.signals;
-	  // a.dataChannelPromise = a.connection.ensureDataChannel(channelName, channelOptions);
-	  // const aSignals = await aPromise;
-	  // a.connection.sending = [];
-	  // b.connection.next = b.connection.signals;
-	  // b.dataChannelPromise = b.connection.ensureDataChannel(channelName, channelOptions, aSignals);
-
-	  // exchange(a.connection, b.connection, b.dataChannelPromise);
+	  await connect(a, b);
 
 	  a.testChannel = await a.dataChannelPromise;
 	  b.testChannel = await b.dataChannelPromise;
@@ -223,9 +87,68 @@ describe("WebRTC", function () {
 	});
       });
     }
-    //test(DirectSignaling);
-    //test(PromiseWebRTC);
-    //test(TrickleWebRTC);
-    test(WebRTCNG);
+    test(DirectSignaling, async (a, b) => {
+      a.connection.otherSide = b.connection;
+      b.connection.otherSide = a.connection;
+      a.dataChannelPromise = a.connection.ensureDataChannel(channelName);
+      // Give the other side an empty list of signals (else we get two offers and no answer),
+      // but yield for the a's offer to be directly transmitted.
+      b.dataChannelPromise = b.connection.ensureDataChannel(channelName, {}, await []);
+    });
+    test(WebRTC, async (a, b) => {
+      a.dataChannelPromise = a.connection.ensureDataChannel(channelName);
+      await a.connection.signalsReady; // await for offer
+      b.dataChannelPromise = b.connection.ensureDataChannel(channelName, {}, a.connection.signals);
+      await b.connection.signalsReady; // await answer
+      await a.connection.connectVia(signals => b.connection.respond(signals)); // Transmits signals back and forth.
+    });
+  });
+  
+  describe("connection to server", function () {
+    describe("using NG ICE", function () {
+      let connection, dataChannel;
+      beforeAll(async function () {
+	connection = WebRTC.ensure({serviceLabel: 'Client'});
+	const ready = connection.signalsReady;
+	const dataChannelPromise = connection.ensureDataChannel('echo');
+	await ready;
+	connection.connectVia(signals => fetchSignals("http://localhost:3000/test/data/echo/foo", signals));
+	dataChannel = await dataChannelPromise;
+      });
+      afterAll(function () {
+	connection.close();
+      });
+      it("sends and receives data", async function () {
+	const echoPromise = new Promise(resolve => dataChannel.onmessage = event => resolve(event.data));
+	dataChannel.send('hello');
+	expect(await echoPromise).toBe('hello');
+      });
+    });
+  });
+
+  describe("capacity", function () {
+    const pairs = [];
+    const nPairs = 76; // NodeJS fails after 152 webrtc peers (76 pairs) in series. In parallel, it is only up through 67 pairs.
+    beforeAll(async function () {
+      const promises = [];
+      for (let i = 0; i < nPairs; i++) {
+	const a = {}, b = {};
+	a.connection = new WebRTC({label: `initiator-${i}`});
+	b.connection = new WebRTC({label: `receiver-${i}`});
+	let aPromise = a.connection.signalsReady;
+	a.dataChannelPromise = a.connection.ensureDataChannel('capacity');
+	const aSignals = await aPromise;
+	await a.connection.connectVia(signals => b.connection.respond(signals))
+	  .then(() => pairs.push([a, b]));
+      }
+      await Promise.all(promises);
+    });
+    afterAll(async function () {
+      for (const [a] of pairs) a.connection.close();
+      await delay(2e3);
+    });
+    it("is pretty big.", function () {
+      expect(pairs.length).toBe(nPairs);
+    });
   });
 });
