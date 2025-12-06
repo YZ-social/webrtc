@@ -19,6 +19,21 @@ async function fetchSignals(url, signalsToSend) {
   return await response.json();
 }
 function map(signals) { return signals?.map?.(s => s[0]); }
+async function exchange(aConnection, bConnection, bDataChannelPromise) {
+  if (aConnection.peer.iceGatheringState !== 'gathering') return;
+  const sending = aConnection.sending;
+  aConnection.sending = [];
+
+  //console.log(aConnection.constructor.name, 'sending', map(sending), bConnection.peer.iceGatheringState);
+  bConnection.signals = sending;
+  const returning = await Promise.race([bConnection.next, bDataChannelPromise]);
+  bConnection.next = bConnection.signals;
+
+  if (!returning?.length) return;
+  //console.log(aConnection.constructor.name, 'received', map(returning), aConnection.peer.iceGatheringState);
+  aConnection.signals = returning;
+  exchange(aConnection, bConnection, bDataChannelPromise);
+}
 
 describe("WebRTC", function () {
   describe("connection to server", function () {
@@ -76,7 +91,43 @@ describe("WebRTC", function () {
     });    
   });
 
-  describe('connection between two peers on the same computer', function () {
+  describe("capacity", function () {
+    const pairs = [];
+    const nPairs = 76; // Node fails after 152 webrtc peers (76 pairs).
+    beforeAll(async function () {
+      const promises = [];
+      for (let i = 0; i < nPairs; i++) {
+	const a = {}, b = {};
+	a.connection = new TrickleWebRTC({label: `initiator-${i}`});
+	b.connection = new TrickleWebRTC({label: `receiver-${i}`});
+	let aPromise = a.connection.signals;
+	a.dataChannelPromise = a.connection.ensureDataChannel('capacity');
+	const aSignals = await aPromise;
+	a.connection.sending = [];
+	b.connection.next = b.connection.signals;
+	b.dataChannelPromise = b.connection.ensureDataChannel('capacity', {}, aSignals);
+	exchange(a.connection, b.connection, b.dataChannelPromise);
+	const connected = Promise.all([a.dataChannelPromise,
+				       await b.dataChannelPromise])
+	      .then(async () => {
+		await a.connection.reportConnection(true);
+		await b.connection.reportConnection(true);
+		pairs.push([a, b]);
+	      });
+	promises.push(connected);
+      }
+      await Promise.all(promises);
+    });
+    afterAll(async function () {
+      for (const [a] of pairs) a.connection.close();
+      await delay(2e3);
+    });
+    it("is pretty big.", function () {
+      expect(pairs.length).toBe(nPairs);
+    });
+  });
+	
+  describe("connection between two peers on the same computer", function () {
     function test(Kind) {
       describe(Kind.name, function () {
 	let a = {}, b = {};
@@ -100,7 +151,7 @@ describe("WebRTC", function () {
 	  // The second peer on the initial negotiation must specify a non-empty signals --
 	  // either an empty list for trickle-ice, or a list of the actual signals from the PromiseWebRTC.
 
-	  b.next = b.connection.signals;
+	  b.connection.next = b.connection.signals;
 	  // let bPromise = b.connection.signals;
 	  // aPromise = a.connection.signals;
 	  b.dataChannelPromise = b.connection.ensureDataChannel(channelName, channelOptions, aSignals);
@@ -110,23 +161,7 @@ describe("WebRTC", function () {
 	  // bPromise = b.connection.signals;
 	  // a.connection.signals = bSignals;
 
-	  async function exchange() {
-	    if (a.connection.peer.iceGatheringState !== 'gathering') return;
-	    const sending = a.connection.sending;
-	    a.connection.sending = [];
-
-	    console.log(Kind.name, 'sending', map(sending), b.connection.peer.iceGatheringState);
-	    b.connection.signals = sending;
-	    const returning = await Promise.race([b.next, b.dataChannelPromise]);
-	    b.next = b.connection.signals;
-
-	    if (!returning?.length) return;
-	    //if (a.connection.peer.iceGatheringState !== 'gathering') return;
-	    console.log(Kind.name, 'received', map(returning), a.connection.peer.iceGatheringState);
-	    a.connection.signals = returning;
-	    exchange();
-	  }
-	  exchange();
+	  exchange(a.connection, b.connection, b.dataChannelPromise);
 
 	  // Only needed in the trickle ice case. Harmless otherwise.
 	  async function conveySignals(from, to, promise) {

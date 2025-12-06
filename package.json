@@ -1,6 +1,6 @@
 {
   "name": "@yz-social/webrtc",
-  "version": "0.0.1",
+  "version": "0.0.2",
   "description": "Streamlined portable webrtc management of p2p and client2server.",
   "keywords": [
     "webrtc",
@@ -16,8 +16,8 @@
     }
   },
   "exports": {
-    ".": "./index.mjs",
-    "./router": "./lib/router.js"
+    ".": "./index.js",
+    "./router": "./routes/index.js"
   },
   "scripts": {
     "test": "npx jasmine",
@@ -33,7 +33,7 @@
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/kilroy-code/flexstore.git"
+    "url": "git+https://github.com/YZ-social/webrtc.git"
   },
   "publishConfig": {
     "registry": "https://registry.npmjs.org"
