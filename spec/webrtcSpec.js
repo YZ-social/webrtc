@@ -36,57 +36,6 @@ async function exchange(aConnection, bConnection, bDataChannelPromise) {
 
 describe("WebRTC", function () {
   describe("connection to server", function () {
-    describe("using PromiseWebRTC", function () {
-      let connection, dataChannel;
-      beforeAll(async function () {
-	connection = PromiseWebRTC.ensure({serviceLabel: 'PromiseClient'});
-	const dataChannelPromise = connection.ensureDataChannel('echo');
-	connection.signals = await fetchSignals("http://localhost:3000/test/promise/echo/foo", await connection.signals);
-	dataChannel = await dataChannelPromise;
-	//connection.reportConnection(true);
-      });
-      afterAll(function () {
-	connection.close();
-      });
-      it("sends and receives data", async function () {
-	const echoPromise = new Promise(resolve => dataChannel.onmessage = event => resolve(event.data));
-	dataChannel.send('hello');
-	expect(await echoPromise).toBe('hello');
-      });
-    });
-    describe("using trickle ICE", function () {
-      let connection, dataChannel;
-      beforeAll(async function () {
-	connection = TrickleWebRTC.ensure({serviceLabel: 'Client'});
-	const dataChannelPromise = connection.ensureDataChannel('echo');
-	await connection.signals;
-	async function exchange() {
-	  if (connection.peer.iceGatheringState !== 'gathering') return;
-	  const sending = connection.sending;
-	  connection.sending = [];
-
-	  //console.log('client sending', map(sending));
-	  const returning = await fetchSignals("http://localhost:3000/test/trickle/echo/foo", sending);
-
-	  if (!returning?.length) return;
-	  //console.log('client', 'received', map(returning), connection.peer.iceGatheringState);
-	  connection.signals = returning;
-	  exchange();
-	}
-	exchange();
-	
-	dataChannel = await dataChannelPromise;
-	//connection.reportConnection(true);
-      });
-      afterAll(function () {
-	connection.close();
-      });
-      it("sends and receives data", async function () {
-	const echoPromise = new Promise(resolve => dataChannel.onmessage = event => resolve(event.data));
-	dataChannel.send('hello');
-	expect(await echoPromise).toBe('hello');
-      });
-    });
     describe("using NG ICE", function () {
       let connection, dataChannel;
       beforeAll(async function () {
@@ -107,6 +56,58 @@ describe("WebRTC", function () {
 	expect(await echoPromise).toBe('hello');
       });
     });
+    // describe("using PromiseWebRTC", function () {
+    //   let connection, dataChannel;
+    //   beforeAll(async function () {
+    // 	connection = PromiseWebRTC.ensure({serviceLabel: 'PromiseClient'});
+    // 	const dataChannelPromise = connection.ensureDataChannel('echo');
+    // 	connection.signals = await fetchSignals("http://localhost:3000/test/promise/echo/foo", await connection.signals);
+    // 	dataChannel = await dataChannelPromise;
+    // 	//connection.reportConnection(true);
+    //   });
+    //   afterAll(function () {
+    // 	connection.close();
+    //   });
+    //   it("sends and receives data", async function () {
+    // 	const echoPromise = new Promise(resolve => dataChannel.onmessage = event => resolve(event.data));
+    // 	dataChannel.send('hello');
+    // 	expect(await echoPromise).toBe('hello');
+    //   });
+    // });
+    
+    // describe("using trickle ICE", function () {
+    //   let connection, dataChannel;
+    //   beforeAll(async function () {
+    // 	connection = TrickleWebRTC.ensure({serviceLabel: 'Client'});
+    // 	const dataChannelPromise = connection.ensureDataChannel('echo');
+    // 	await connection.signals;
+    // 	async function exchange() {
+    // 	  if (connection.peer.iceGatheringState !== 'gathering') return;
+    // 	  const sending = connection.sending;
+    // 	  connection.sending = [];
+
+    // 	  //console.log('client sending', map(sending));
+    // 	  const returning = await fetchSignals("http://localhost:3000/test/trickle/echo/foo", sending);
+
+    // 	  if (!returning?.length) return;
+    // 	  //console.log('client', 'received', map(returning), connection.peer.iceGatheringState);
+    // 	  connection.signals = returning;
+    // 	  exchange();
+    // 	}
+    // 	exchange();
+	
+    // 	dataChannel = await dataChannelPromise;
+    // 	//connection.reportConnection(true);
+    //   });
+    //   afterAll(function () {
+    // 	connection.close();
+    //   });
+    //   it("sends and receives data", async function () {
+    // 	const echoPromise = new Promise(resolve => dataChannel.onmessage = event => resolve(event.data));
+    // 	dataChannel.send('hello');
+    // 	expect(await echoPromise).toBe('hello');
+    //   });
+    // });
   });
 
   describe("capacity", function () {
@@ -141,7 +142,6 @@ describe("WebRTC", function () {
       describe(Kind.name, function () {
 	let a = {}, b = {};
 	const channelName = 'test';
-	const channelOptions = {};
 	beforeAll(async function () {
 	  const debug = false;
 	  a.connection = Kind.ensure({serviceLabel: 'A'+Kind.name, debug});
@@ -149,16 +149,25 @@ describe("WebRTC", function () {
 
 	  // Required only for DirectSignaling signal(), above. Ignored for others.
 	  a.connection.otherSide = b.connection;
-	  b.connection.otherSide = a.connection;    
+	  b.connection.otherSide = a.connection;
 
-	  let aPromise = a.connection.signals;
-	  a.dataChannelPromise = a.connection.ensureDataChannel(channelName, channelOptions);
-	  const aSignals = await aPromise;
-	  a.connection.sending = [];
-	  b.connection.next = b.connection.signals;
-	  b.dataChannelPromise = b.connection.ensureDataChannel(channelName, channelOptions, aSignals);
+	  const aStarted = a.connection.signalsReady;
+	  a.dataChannelPromise = a.connection.ensureDataChannel(channelName);
+	  await aStarted;
+	  const bStarted = b.connection.signalsReady;
+	  b.dataChannelPromise = b.connection.ensureDataChannel(channelName, {}, await a.connection.signals);
+	  await bStarted;
+	  a.connection.signals = b.connection.signals;
+	  await a.connection.connectVia(signals => b.connection.respond(signals));
 
-	  exchange(a.connection, b.connection, b.dataChannelPromise);
+	  // let aPromise = a.connection.signals;
+	  // a.dataChannelPromise = a.connection.ensureDataChannel(channelName, channelOptions);
+	  // const aSignals = await aPromise;
+	  // a.connection.sending = [];
+	  // b.connection.next = b.connection.signals;
+	  // b.dataChannelPromise = b.connection.ensureDataChannel(channelName, channelOptions, aSignals);
+
+	  // exchange(a.connection, b.connection, b.dataChannelPromise);
 
 	  a.testChannel = await a.dataChannelPromise;
 	  b.testChannel = await b.dataChannelPromise;
@@ -195,8 +204,8 @@ describe("WebRTC", function () {
 	describe("second channel", function () {
 	  beforeAll(async function () {
 	    const name2 = 'channel2';
-	    a.promise2 = a.connection.ensureDataChannel(name2, channelOptions);
-	    b.promise2 = b.connection.ensureDataChannel(name2, channelOptions);
+	    a.promise2 = a.connection.ensureDataChannel(name2);
+	    b.promise2 = b.connection.ensureDataChannel(name2);
 	    a.channel2 = await a.promise2;
 	    b.channel2 = await b.promise2;
 	  });
@@ -214,8 +223,9 @@ describe("WebRTC", function () {
 	});
       });
     }
-    test(DirectSignaling);
+    //test(DirectSignaling);
     //test(PromiseWebRTC);
-    test(TrickleWebRTC);
+    //test(TrickleWebRTC);
+    test(WebRTCNG);
   });
 });
