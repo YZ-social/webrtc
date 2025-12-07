@@ -25,7 +25,7 @@ describe("WebRTC", function () {
     const channelName = 'test';
     function test(Kind, connect) {
       describe(Kind.name, function () {
-	let a = {}, b = {};
+	let a = {}, b = {}; let calledCloseA = 0, calledCloseB = 0;
 	beforeAll(async function () {
 	  const debug = false;
 	  a.connection = Kind.ensure({serviceLabel: 'A'+Kind.name, debug});
@@ -35,6 +35,8 @@ describe("WebRTC", function () {
 
 	  a.testChannel = await a.dataChannelPromise;
 	  b.testChannel = await b.dataChannelPromise;
+	  a.testChannel.addEventListener('close', () => { calledCloseA++; });
+	  b.testChannel.addEventListener('close', () => { calledCloseB++; });
 
 	  await a.connection.reportConnection();
 	  await b.connection.reportConnection();
@@ -44,6 +46,8 @@ describe("WebRTC", function () {
 	  expect(a.connection.peer.connectionState).toBe('new');
 	  await delay(10); // Yield to allow the other side to close.
 	  expect(b.connection.peer.connectionState).toBe('new');
+	  expect(calledCloseA).toBe(1);
+	  expect(calledCloseB).toBe(1);
 	});
 	it("changes state appropriately.", async function () {
 	  expect(await a.dataChannelPromise).toBeTruthy();

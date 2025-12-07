@@ -1,6 +1,6 @@
 {
   "name": "@yz-social/webrtc",
-  "version": "0.0.3",
+  "version": "0.0.4",
   "description": "Streamlined portable webrtc management of p2p and client2server.",
   "keywords": [
     "webrtc",
