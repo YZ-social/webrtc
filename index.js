@@ -17,24 +17,24 @@ export class WebRTC {
     this.ignoreOffer = false;
 
     this.pc.onicecandidate = e => {
-      //this.log(this.name, 'generated ice', !!e.candidate);
       if (e.candidate) {
         this.signal({ candidate: e.candidate });
       }
     };
     this.pc.ondatachannel = e => { // Fires only on the answer side if the offer side opened without negotiated:true.
       const dc = e.channel;
-      this.log('***', this.name, 'ondatachannel:', dc.label, dc.id, dc.readyState, dc.negotiated, '****');
+      this.log('ondatachannel:', dc.label, dc.id, dc.readyState, dc.negotiated);
       if (!dc.negotiated) this.setupChannel(e.channel);
     };
     this.pc.onnegotiationneeded = async () => {
       try {
         this.makingOffer = true;
-        this.log(this.name, 'creating offer in state:', this.pc.signalingState);
+        this.log('creating offer in state:', this.pc.signalingState);
 	const offer = await this.pc.createOffer(); // The current wrtc for NodeJS doesn't yet support setLocalDescription with no arguments.
 	if (this.pc.signalingState != "stable") return; // https://blog.mozilla.org/webrtc/perfect-negotiation-in-webrtc/
-	this.log(this.name, 'setting local offer in state:', this.pc.signalingState);
-        await this.pc.setLocalDescription(offer).catch(e => console.log(this.name, 'error set local original offer while in state', this.pc.signalingState, e));
+	this.log('setting local offer in state:', this.pc.signalingState);
+        await this.pc.setLocalDescription(offer)
+	  .catch(e => console.log(this.name, 'ignoring error in setLocalDescription of original offer while in state', this.pc.signalingState, e));
         this.signal({ description: this.pc.localDescription });
       } finally {
         this.makingOffer = false;
@@ -48,7 +48,7 @@ export class WebRTC {
     return this.closed;
   }
   log(...rest) {
-    if (this.debug) console.log(...rest);
+    if (this.debug) console.log(this.name, ...rest);
   }
   static delay(ms) {
     return new Promise(resolve => setTimeout(resolve, ms));
@@ -62,25 +62,28 @@ export class WebRTC {
             (this.makingOffer || (this.pc.signalingState !== "stable" && !this.settingRemote));
 
       this.ignoreOffer = !this.polite && offerCollision;
-      this.log(this.name, 'got', description.type, this.pc.signalingState, 'making:', this.makingOffer, 'collision:', offerCollision, 'ignore:', this.ignoreOffer, 'settingRemote:', this.settingRemote);
+      this.log('got', description.type, this.pc.signalingState, 'making:', this.makingOffer, 'collision:', offerCollision, 'ignore:', this.ignoreOffer, 'settingRemote:', this.settingRemote);
 
       if (this.ignoreOffer) {
-        this.log(this.name, "ignoring offer (collision)");
+        this.log("ignoring offer (collision)");
         return;
       }
 
       if (/*typeof(process) !== 'undefined' && */offerCollision) {
 	// The current wrtc for NodeJS doesn't yet support automatic rollback. We need to make it explicit.
 	await Promise.all([ // See https://blog.mozilla.org/webrtc/perfect-negotiation-in-webrtc/
-          this.pc.setLocalDescription({type: "rollback"}).then(() => this.log(this.name, 'rollback ok'), e => console.log(this.name, 'error rollback', e)),
-          this.pc.setRemoteDescription(description).then(() => this.log(this.name, 'set offer ok'), e => console.log(this.name, 'error set remote with rollback', e))
+          this.pc.setLocalDescription({type: "rollback"})
+	    .then(() => this.log('rollback ok'), e => console.log(this.name, 'ignoring error in rollback', e)),
+          this.pc.setRemoteDescription(description)
+	    .then(() => this.log('set offer ok'), e => console.log(this.name, 'ignoring error setRemoteDescription with rollback', e))
 	]);
 	this.rolledBack = true; // For diagnostics.
-	this.log(this.name, 'rolled back. producing answer');
+	this.log('rolled back. producing answer');
       } else {
 	this.settingRemote = true; // fixme remove
 	try {
-	  await this.pc.setRemoteDescription(description).catch(e => console.log(this.name, 'error set remote offer while in state', this.pc.signalingState, e));
+	  await this.pc.setRemoteDescription(description)
+	    .catch(e => console.log(this.name, 'ignoring error in setRemoteDescription while in state', this.pc.signalingState, e));
 	  if (offerCollision) this.rolledBack = true;
 	} finally {
 	  this.settingRemote = false;
@@ -89,12 +92,13 @@ export class WebRTC {
 
       if (description.type === "offer") {
 	const answer = await this.pc.createAnswer();
-        await this.pc.setLocalDescription(answer).catch(e => console.log(this.name, 'error set local answer', e));
+        await this.pc.setLocalDescription(answer)
+	  .catch(e => console.log(this.name, 'ignoring error setLocalDescription of answer', e));
         this.signal({ description: this.pc.localDescription });
       }
     } else if (candidate) {
       try {
-	//this.log(this.name, 'add ice');
+	//this.log('add ice');
         await this.pc.addIceCandidate(candidate);
       } catch (e) {
         if (!this.ignoreOffer) throw e;
@@ -106,16 +110,28 @@ export class WebRTC {
   dataChannels = {};
   setupChannel(dc) {
     const nameExists = this[dc.label];
-    this.log(this.name, 'setup:', dc.label, dc.id, dc.readyState, 'negotiated:', dc.negotiated, 'nameExists:', !!nameExists);
+    this.log('setup:', dc.label, dc.id, dc.readyState, 'negotiated:', dc.negotiated, 'nameExists:', !!nameExists);
     this[dc.label] = dc;
     this.dataChannels[dc.label] = dc;
+
+    this.log('setting onmessage on', dc.label, dc.id);
     dc.onmessage = e => {
       this.receivedMessageCount++;
-      this.log(this.name, 'onmessage: ', dc.label, dc.id, e.data);
+      this.log('onmessage: ', dc.label, dc.id, e.data);
     };
+
     dc.onopen = async () => {
-      this.log(this.name, 'channel onopen:', dc.label, dc.id, dc.readyState, dc.negotiated);
-      if (!nameExists) this.dataChannelPromises[dc.label]?.resolve(dc);
+      this.log('channel onopen:', dc.label, dc.id, dc.readyState, 'negotiated:', dc.negotiated, 'nameExists:', !!nameExists);
+      if (!nameExists) {
+
+	this.log('NOT setting onmessage on', dc.label, dc.id);
+	// dc.onmessage = e => {
+	//   this.receivedMessageCount++;
+	//   this.log('onmessage: ', dc.label, dc.id, e.data);
+	// };
+
+	this.dataChannelPromises[dc.label]?.resolve(dc);
+      }
     };
     if (dc.readyState === 'open' && dc.negotiated) {
       dc.onopen();
@@ -145,6 +161,7 @@ export class WebRTC {
   sendOn(label, msg) {
     const dc = this[label];
     if (dc && dc.readyState === "open") {
+      this.log('sending on', dc.label, dc.id, msg);
       dc.send(msg);
       this.sentMessageCount++;
     }

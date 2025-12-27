@@ -48,8 +48,8 @@ describe("WebRTC", function () {
       });
       standardBehavior(false);
     });
-    describe("simultaneous", function () {
-      describe("negotiated", function () {
+    describe("simultaneous two-sided", function () {
+      describe("negotiated single full-duplex-channel", function () {
 	describe("impolite first", function () {
 	  beforeAll(async function () {
 	    [A, B, bothOpen] = makePair();	    
@@ -69,10 +69,10 @@ describe("WebRTC", function () {
 	  standardBehavior();
 	});
       });
-      describe("non-negotiated", function () {
+      describe("non-negotiated dual half-duplex channels", function () {
 	describe("impolite first", function () {
 	  beforeAll(async function () {
-	    [A, B, bothOpen] = makePair();
+	    [A, B, bothOpen] = makePair({debug: true});
 	    A.ensureChannel("data");
 	    B.ensureChannel("data");
 	    await bothOpen;
