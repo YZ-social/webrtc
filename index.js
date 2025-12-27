@@ -17,9 +17,8 @@ export class WebRTC {
     this.ignoreOffer = false;
 
     this.pc.onicecandidate = e => {
-      if (e.candidate) {
-        this.signal({ candidate: e.candidate });
-      }
+      if (!e.candidate) return;
+      this.signal({ candidate: e.candidate });
     };
     this.pc.ondatachannel = e => { // Fires only on the answer side if the offer side opened without negotiated:true.
       // This our chance to setupChannel, just as if we had called createChannel
@@ -111,29 +110,13 @@ export class WebRTC {
   receivedMessageCount = 0;
   dataChannels = {};
   setupChannel(dc) { // Given an open or connecting channel, set it up in a unform way.
-    const nameExists = this[dc.label];
-    this.log('setup:', dc.label, dc.id, dc.readyState, 'negotiated:', dc.negotiated, 'nameExists:', !!nameExists);
-    this[dc.label] = dc;
-    this.dataChannels[dc.label] = dc;
-
-    this.log('setting onmessage on', dc.label, dc.id);
-    dc.onmessage = e => {
-      this.receivedMessageCount++;
-      this.log('onmessage: ', dc.label, dc.id, e.data);
-    };
+    this.log('setup:', dc.label, dc.id, dc.readyState, 'negotiated:', dc.negotiated);
+    this[dc.label] = this.dataChannels[dc.label] = dc;
+    dc.webrtc = this;
 
     dc.onopen = async () => {
-      this.log('channel onopen:', dc.label, dc.id, dc.readyState, 'negotiated:', dc.negotiated, 'nameExists:', !!nameExists);
-      if (!nameExists) {
-
-	this.log('NOT setting onmessage on', dc.label, dc.id);
-	// dc.onmessage = e => {
-	//   this.receivedMessageCount++;
-	//   this.log('onmessage: ', dc.label, dc.id, e.data);
-	// };
-
-	this.dataChannelPromises[dc.label]?.resolve(dc);
-      }
+      this.log('channel onopen:', dc.label, dc.id, dc.readyState, 'negotiated:', dc.negotiated);
+      this.dataChannelPromises[dc.label]?.resolve(dc);
     };
   }
   channelId = 128; // Non-negotiated channel.id get assigned at open by the peer, starting with 0. This avoids conflicts.

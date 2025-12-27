@@ -4,11 +4,22 @@ import { WebRTC } from '../index.js';
 describe("WebRTC", function () {
   let A, B, bothOpen;
   describe("direct in-process signaling", function () {
-    function makePair({debug = false} = {}) {
+    function makePair({debug = false, delay = 0} = {}) {
       const A = new WebRTC({name: "A (impolite)", polite: false, debug});
       const B = new WebRTC({name: "B (polite)", polite: true, debug});
-      const aOpen = A.getDataChannelPromise('data').then(() => A.sendOn('data', `Hello from ${A.name}`));
-      const bOpen = B.getDataChannelPromise('data').then(() => B.sendOn('data', `Hello from ${B.name}`));
+      async function sendingSetup(dc) {
+	dc.onmessage = e => {
+	  dc.webrtc.receivedMessageCount++;
+	  dc.webrtc.log('got message', e.data);
+	};
+	// If non-zero delay is specified, wait that long for the other side to set up before we send.
+	// This is only necessary for simultaneous non-negotiated channels, such that one side
+	// opens on one id and the other side opens later on a different id.
+	if (delay) await WebRTC.delay(delay);
+	dc.webrtc.sendOn('data', `Hello from ${dc.webrtc.name}`);
+      }
+      const aOpen = A.getDataChannelPromise('data').then(sendingSetup);
+      const bOpen = B.getDataChannelPromise('data').then(sendingSetup);
       A.signal = msg => B.onSignal(msg);
       B.signal = msg => A.onSignal(msg);
       return [A, B, Promise.all([aOpen, bOpen])];
@@ -70,9 +81,10 @@ describe("WebRTC", function () {
 	});
       });
       describe("non-negotiated dual half-duplex channels", function () {
+	const delay = 10;
 	describe("impolite first", function () {
 	  beforeAll(async function () {
-	    [A, B, bothOpen] = makePair({debug: true});
+	    [A, B, bothOpen] = makePair({delay});
 	    A.createChannel("data");
 	    B.createChannel("data");
 	    await bothOpen;
@@ -81,7 +93,7 @@ describe("WebRTC", function () {
 	});
 	describe("polite first", function () {
 	  beforeAll(async function () {
-	    [A, B, bothOpen] = makePair();
+	    [A, B, bothOpen] = makePair({delay});
 	    B.createChannel("data");
 	    A.createChannel("data");
 	    await bothOpen;
