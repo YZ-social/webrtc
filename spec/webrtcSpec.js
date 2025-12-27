@@ -43,7 +43,7 @@ describe("WebRTC", function () {
     describe("one side opens", function () {
       beforeAll(async function () {
 	[A, B, bothOpen] = makePair();
-	A.ensureChannel('data');
+	A.createChannel('data');
 	await bothOpen;
       });
       standardBehavior(false);
@@ -53,8 +53,8 @@ describe("WebRTC", function () {
 	describe("impolite first", function () {
 	  beforeAll(async function () {
 	    [A, B, bothOpen] = makePair();	    
-	    A.ensureChannel("data", {negotiated: true});
-	    B.ensureChannel("data", {negotiated: true});
+	    A.createChannel("data", {negotiated: true});
+	    B.createChannel("data", {negotiated: true});
 	    await bothOpen;
 	  });
 	  standardBehavior();
@@ -62,8 +62,8 @@ describe("WebRTC", function () {
 	describe("polite first", function () {
 	  beforeAll(async function () {
 	    [A, B, bothOpen] = makePair();
-	    B.ensureChannel("data", {negotiated: true});
-	    A.ensureChannel("data", {negotiated: true});
+	    B.createChannel("data", {negotiated: true});
+	    A.createChannel("data", {negotiated: true});
 	    await bothOpen;
 	  });
 	  standardBehavior();
@@ -73,8 +73,8 @@ describe("WebRTC", function () {
 	describe("impolite first", function () {
 	  beforeAll(async function () {
 	    [A, B, bothOpen] = makePair({debug: true});
-	    A.ensureChannel("data");
-	    B.ensureChannel("data");
+	    A.createChannel("data");
+	    B.createChannel("data");
 	    await bothOpen;
 	  });
 	  standardBehavior();
@@ -82,8 +82,8 @@ describe("WebRTC", function () {
 	describe("polite first", function () {
 	  beforeAll(async function () {
 	    [A, B, bothOpen] = makePair();
-	    B.ensureChannel("data");
-	    A.ensureChannel("data");
+	    B.createChannel("data");
+	    A.createChannel("data");
 	    await bothOpen;
 	  });
 	  standardBehavior();

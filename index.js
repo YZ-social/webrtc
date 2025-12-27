@@ -22,9 +22,11 @@ export class WebRTC {
       }
     };
     this.pc.ondatachannel = e => { // Fires only on the answer side if the offer side opened without negotiated:true.
+      // This our chance to setupChannel, just as if we had called createChannel
       const dc = e.channel;
       this.log('ondatachannel:', dc.label, dc.id, dc.readyState, dc.negotiated);
-      if (!dc.negotiated) this.setupChannel(e.channel);
+      this.setupChannel(dc);
+      dc.onopen(); // It had been opened before we setup, so invoke handler now.
     };
     this.pc.onnegotiationneeded = async () => {
       try {
@@ -108,7 +110,7 @@ export class WebRTC {
 
   receivedMessageCount = 0;
   dataChannels = {};
-  setupChannel(dc) {
+  setupChannel(dc) { // Given an open or connecting channel, set it up in a unform way.
     const nameExists = this[dc.label];
     this.log('setup:', dc.label, dc.id, dc.readyState, 'negotiated:', dc.negotiated, 'nameExists:', !!nameExists);
     this[dc.label] = dc;
@@ -133,12 +135,9 @@ export class WebRTC {
 	this.dataChannelPromises[dc.label]?.resolve(dc);
       }
     };
-    if (dc.readyState === 'open' && dc.negotiated) {
-      dc.onopen();
-    }
   }
   channelId = 128; // Non-negotiated channel.id get assigned at open by the peer, starting with 0. This avoids conflicts.
-  ensureChannel(name = 'data', options = {}) { // Explicitly create it.
+  createChannel(name = 'data', options = {}) { // Explicitly create channel and set it up.
     if (options.negotiated && !options.id) options = {id: this.channelId++, ...options};
     this.setupChannel(this.pc.createDataChannel(name, options));
   }
@@ -148,7 +147,7 @@ export class WebRTC {
     Object.assign(promise, {resolve, reject});
     return this.dataChannelPromises[name] = promise;
   }
-  async closeDataChannels() {
+  async closeDataChannels() { // Kill 'em all, and don't resolve until they are dead.
     for (const dc of Object.values(this.dataChannels)) {
       if (dc.readyState === 'closed') continue;
       const closed = new Promise(resolve => dc.onclose = () => resolve());
