@@ -8,15 +8,42 @@ describe("WebRTC", function () {
       const A = new WebRTC({name: "A (impolite)", polite: false, debug});
       const B = new WebRTC({name: "B (polite)", polite: true, debug});
       async function sendingSetup(dc) {
+	const webrtc = dc.webrtc;
+	webrtc.receivedMessageCount = webrtc.sentMessageCount = 0;
 	dc.onmessage = e => {
-	  dc.webrtc.receivedMessageCount++;
-	  dc.webrtc.log('got message', e.data);
+	  webrtc.receivedMessageCount++;
+	  webrtc.log('got message on', dc.label, dc.id, e.data);
 	};
-	// If non-zero delay is specified, wait that long for the other side to set up before we send.
-	// This is only necessary for simultaneous non-negotiated channels, such that one side
-	// opens on one id and the other side opens later on a different id.
-	if (delay) await WebRTC.delay(delay);
-	dc.webrtc.sendOn('data', `Hello from ${dc.webrtc.name}`);
+	webrtc.sentMessageCount++;
+
+	// Subtle:
+	//
+	// An explicit createChannel() arranges for the promise created by getDataChannelPromise() of the same name to
+	// resolve on that side of the connection when the channel is open. The other side will internally receive a
+	// datachannel event and we arrange for that side to then also resolve a getDataChannelPromise for that name.
+	//
+	// If only wide side creates the channel, things work out smoothly. Each side ends up resolving the promise for a
+	// channel of the given name. The id is as defaulted or specified if negotiated:true, else an internally determined
+	// unique id is used.
+	//
+	// Things are also smooth if negotiated:true and both sides call createChannel simultaneously, such that there
+	// are overlappaing offers. One side backs down and there ends up being one channel with the specified id. (The default
+	// id will be the same on both sides IFF any multiple data channels are created in the same order on both sides.)
+	//
+	// However, when negotiated:false, and both sides call createChannel simultaneously, things get complex. Counterintuitively,
+	// RTCPeerConnection arranges for the internall determined id to be unique between the two sides, so both get
+	// two channels with the same name and different id. There will be two internal open events on each side: first for the
+	// channel that it created, and second for one that the other side created. There isn't any reason to do this (as
+	// opposed to specifying negotiated:true, unless the application needs each side to listen on one channel and send
+	// on the other. However, getDataChannelPromise return a promise based on the specified name alone, and it only
+	// resolves once. For compatibility with the single-sided case, we resolve the first channel (on each side, which
+	// are different ids). Thus we must attach onmessage to one channel and send on the other. On both sides, the
+	// first channel is what the promise resolves to, but after a delay, the second channel is available on webrtc[channelName].
+
+	if (!delay) return dc.send(`Hello from ${webrtc.name}`);
+	await WebRTC.delay(delay);
+	webrtc.data.send(`Hello from ${webrtc.name}`);
+	return null;
       }
       const aOpen = A.getDataChannelPromise('data').then(sendingSetup);
       const bOpen = B.getDataChannelPromise('data').then(sendingSetup);
@@ -52,12 +79,22 @@ describe("WebRTC", function () {
       });
     }
     describe("one side opens", function () {
-      beforeAll(async function () {
-	[A, B, bothOpen] = makePair();
-	A.createChannel('data');
-	await bothOpen;
+      describe('negotiated', function () {
+	beforeAll(async function () {
+	  [A, B, bothOpen] = makePair({negotiated: true});
+	  A.createChannel('data');
+	  await bothOpen;
+	});
+	standardBehavior(false);
       });
-      standardBehavior(false);
+      describe('non-negotiated', function () {
+	beforeAll(async function () {
+	  [A, B, bothOpen] = makePair();
+	  A.createChannel('data');
+	  await bothOpen;
+	});
+	standardBehavior(false);
+      });
     });
     describe("simultaneous two-sided", function () {
       describe("negotiated single full-duplex-channel", function () {

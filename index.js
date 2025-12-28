@@ -107,16 +107,14 @@ export class WebRTC {
     }
   }
 
-  receivedMessageCount = 0;
   dataChannels = {};
   setupChannel(dc) { // Given an open or connecting channel, set it up in a unform way.
-    this.log('setup:', dc.label, dc.id, dc.readyState, 'negotiated:', dc.negotiated);
+    this.log('setup:', dc.label, dc.id, dc.readyState, 'negotiated:', dc.negotiated, 'exists:', !!this[dc.label]);
     this[dc.label] = this.dataChannels[dc.label] = dc;
     dc.webrtc = this;
-
     dc.onopen = async () => {
       this.log('channel onopen:', dc.label, dc.id, dc.readyState, 'negotiated:', dc.negotiated);
-      this.dataChannelPromises[dc.label]?.resolve(dc);
+      this.dataChannelPromises[dc.label]?.resolve(this[dc.label]);
     };
   }
   channelId = 128; // Non-negotiated channel.id get assigned at open by the peer, starting with 0. This avoids conflicts.
@@ -139,14 +137,13 @@ export class WebRTC {
     }
   }
 
-  sentMessageCount = 0;
-  sendOn(label, msg) {
-    const dc = this[label];
-    if (dc && dc.readyState === "open") {
-      this.log('sending on', dc.label, dc.id, msg);
-      dc.send(msg);
-      this.sentMessageCount++;
-    }
-  }
+  // sendOn(label, msg) {
+  //   const dc = this[label];
+  //   if (dc && dc.readyState === "open") {
+  //     this.log('sending on', dc.label, dc.id, msg);
+  //     dc.send(msg);
+  //     //this.sentMessageCount++;
+  //   }
+  // }
 }
 
