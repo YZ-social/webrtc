@@ -20,7 +20,7 @@ export class WebRTC {
       if (!e.candidate) return;
       this.signal({ candidate: e.candidate });
     };
-    this.pc.ondatachannel = e => { // Fires only on the answer side if the offer side opened without negotiated:true.
+    this.pc.ondatachannel = e => { // Fires only on the answer side if the offer side opened with negotiated:false
       // This our chance to setupChannel, just as if we had called createChannel
       const dc = e.channel;
       this.log('ondatachannel:', dc.label, dc.id, dc.readyState, dc.negotiated);
@@ -81,7 +81,7 @@ export class WebRTC {
 	this.rolledBack = true; // For diagnostics.
 	this.log('rolled back. producing answer');
       } else {
-	this.settingRemote = true; // fixme remove
+	this.settingRemote = true;
 	try {
 	  await this.pc.setRemoteDescription(description)
 	    .catch(e => console.log(this.name, 'ignoring error in setRemoteDescription while in state', this.pc.signalingState, e));
@@ -118,9 +118,8 @@ export class WebRTC {
     };
   }
   channelId = 128; // Non-negotiated channel.id get assigned at open by the peer, starting with 0. This avoids conflicts.
-  createChannel(name = 'data', options = {}) { // Explicitly create channel and set it up.
-    if (options.negotiated && !options.id) options = {id: this.channelId++, ...options};
-    this.setupChannel(this.pc.createDataChannel(name, options));
+  createChannel(name = 'data', {negotiated = false, id = this.channelId++, ...options} = {}) { // Explicitly create channel and set it up.
+    this.setupChannel(this.pc.createDataChannel(name, {negotiated, id, ...options}));
   }
   dataChannelPromises = {};
   getDataChannelPromise(name = 'data') { // Promise to resolve when opened, WITHOUT actually creating one.
@@ -136,14 +135,5 @@ export class WebRTC {
       await closed;
     }
   }
-
-  // sendOn(label, msg) {
-  //   const dc = this[label];
-  //   if (dc && dc.readyState === "open") {
-  //     this.log('sending on', dc.label, dc.id, msg);
-  //     dc.send(msg);
-  //     //this.sentMessageCount++;
-  //   }
-  // }
 }
 

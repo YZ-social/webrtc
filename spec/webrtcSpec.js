@@ -79,23 +79,36 @@ describe("WebRTC", function () {
       });
     }
     describe("one side opens", function () {
-      describe('negotiated', function () {
+      describe('non-negotiated', function () {
 	beforeAll(async function () {
-	  [A, B, bothOpen] = makePair({negotiated: true});
-	  A.createChannel('data');
+	  [A, B, bothOpen] = makePair();
+	  A.createChannel('data', {negotiated: false});
 	  await bothOpen;
 	});
 	standardBehavior(false);
       });
-      describe('non-negotiated', function () {
+      describe('negotiated on on first signal', function () {
 	beforeAll(async function () {
 	  [A, B, bothOpen] = makePair();
-	  A.createChannel('data');
+	  // There isn't really a direct, automated way to have one side open another with negotiated:true,
+	  // because the receiving RTCPeerConnection does not fire 'datachannel' when the sender was negotiated:true.
+	  // However, what the app can do is wake up and create an explicit createChannel when it first receives an
+	  // unsolicited offer. 
+	  let awake = false;
+	  A.signal = msg => {
+	    if (!awake) {
+	      B.createChannel("data", {negotiated: true});
+	      awake = true;
+	    }
+	    B.onSignal(msg);
+	  };
+	  A.createChannel('data', {negotiated: true});
 	  await bothOpen;
 	});
 	standardBehavior(false);
       });
     });
+
     describe("simultaneous two-sided", function () {
       describe("negotiated single full-duplex-channel", function () {
 	describe("impolite first", function () {
@@ -122,8 +135,8 @@ describe("WebRTC", function () {
 	describe("impolite first", function () {
 	  beforeAll(async function () {
 	    [A, B, bothOpen] = makePair({delay});
-	    A.createChannel("data");
-	    B.createChannel("data");
+	    A.createChannel("data", {negotiated: false});
+	    B.createChannel("data", {negotiated: false});
 	    await bothOpen;
 	  });
 	  standardBehavior();
@@ -131,8 +144,8 @@ describe("WebRTC", function () {
 	describe("polite first", function () {
 	  beforeAll(async function () {
 	    [A, B, bothOpen] = makePair({delay});
-	    B.createChannel("data");
-	    A.createChannel("data");
+	    B.createChannel("data", {negotiated: false});
+	    A.createChannel("data", {negotiated: false});
 	    await bothOpen;
 	  });
 	  standardBehavior();
