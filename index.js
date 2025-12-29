@@ -55,6 +55,8 @@ export class WebRTC {
     return new Promise(resolve => setTimeout(resolve, ms));
   }
 
+  // Must include NodeJS, and must not include Chrome/Edge. Safari and Firefox can be either.
+  explicitRollback = typeof(globalThis.process) !== 'undefined';
   async onSignal({ description, candidate }) {
     // Most of this and onnegotiationneeded is from https://developer.mozilla.org/en-US/docs/Web/API/WebRTC_API/Perfect_negotiation
     if (description) {
@@ -63,17 +65,17 @@ export class WebRTC {
             (this.makingOffer || (this.pc.signalingState !== "stable" && !this.settingRemote));
 
       this.ignoreOffer = !this.polite && offerCollision;
-      this.log('got', description.type, this.pc.signalingState, 'making:', this.makingOffer, 'collision:', offerCollision, 'ignore:', this.ignoreOffer, 'settingRemote:', this.settingRemote);
+      this.log('onSignal', description.type, this.pc.signalingState, 'making:', this.makingOffer, 'collision:', offerCollision, 'ignore:', this.ignoreOffer, 'settingRemote:', this.settingRemote);
 
       if (this.ignoreOffer) {
         this.log("ignoring offer (collision)");
         return;
       }
 
-      if (/*typeof(process) !== 'undefined' && */offerCollision) {
+      if (this.explicitRollback && offerCollision) {
 	// The current wrtc for NodeJS doesn't yet support automatic rollback. We need to make it explicit.
 	await Promise.all([ // See https://blog.mozilla.org/webrtc/perfect-negotiation-in-webrtc/
-          this.pc.setLocalDescription({type: "rollback"})
+          this.pc.setLocalDescription({type: 'rollback'})
 	    .then(() => this.log('rollback ok'), e => console.log(this.name, 'ignoring error in rollback', e)),
           this.pc.setRemoteDescription(description)
 	    .then(() => this.log('set offer ok'), e => console.log(this.name, 'ignoring error setRemoteDescription with rollback', e))
