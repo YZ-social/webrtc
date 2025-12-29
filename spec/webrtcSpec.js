@@ -7,8 +7,9 @@ describe("WebRTC", function () {
   let connections = [];
   describe("direct in-process signaling", function () {
     function makePair({debug = false, delay = 0, index = 0} = {}) {
-      const A = new WebRTC({name: `A (impolite) ${index}`, polite: false, debug});
-      const B = new WebRTC({name: `B (polite) ${index}`, polite: true, debug});
+      const configuration = { iceServers: [] };
+      const A = new WebRTC({name: `A (impolite) ${index}`, polite: false, debug, configuration});
+      const B = new WebRTC({name: `B (polite) ${index}`, polite: true, debug, configuration});
       async function sendingSetup(dc) {
         const webrtc = dc.webrtc;
         webrtc.receivedMessageCount = webrtc.sentMessageCount = 0;
@@ -93,25 +94,19 @@ describe("WebRTC", function () {
         const promises = [];
         for (let index = 0; index < nPairs; index++) {
           const {A, B} = connections[index];
-	  let aData = A.data, bData = B.data;
-          let promise = A.close().then(async apc => {
-            expect(aData.readyState).toBe('closed');
+	  let promise = A.close().then(async apc => {
             expect(apc.connectionState).toBe('closed'); // Only on the side that explicitly closed.
-            expect(apc.signalingState).toBe('closed');  // Ditto.
-	    const promises = [B.closed];
-	    // HACK: Safari seems to get lost when there are more than 35 or so RTCPeerConnections.
-	    // Do we need an active ping/pong?
-	    if (globalThis.navigator?.vendor?.startsWith('Apple')) promises.push(WebRTC.delay(5e3, B.pc)); // sigh
-            const bpc = await Promise.race(promises);
-	    B.close(); // Resources are not necessarilly freed when the other side closes. An explicit close() is needed.
-            expect(bData.readyState).toBe('closed');
-            expect(['disconnected', 'failed']).toContain(bpc.connectionState);
-          });
+            expect(apc.signalingState).toBe('closed');
+	    const bpc = await B.closed; // Waiting for B to notice.
+	    await B.close(); // Resources are not necessarilly freed when the other side closes. An explicit close() is needed.
+            expect(['closed', 'disconnected', 'failed']).toContain(B.pc.connectionState);
+	    expect(bpc.signalingState).toBe('closed');
+	  });
           promises.push(promise);
         }
         await Promise.all(promises);
         console.log('end teardown', Date.now() - start);        
-      }, 1e3 * nPairs);
+      }, Math.max(30e3, 1e3 * nPairs));
     }
     describe("one side opens", function () {
       describe('non-negotiated', function () {

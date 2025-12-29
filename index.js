@@ -2,16 +2,33 @@
 const wrtc = (typeof(process) === 'undefined') ? globalThis : (await import('#wrtc')).default;
 
 export class WebRTC {
-  constructor(properties) {
+  static iceServers = [ // Some default stun and even turn servers.
+
+    { urls: 'stun:stun.l.google.com:19302'},
+    // https://freestun.net/  Currently 50 KBit/s. (2.5 MBit/s fors $9/month)
+    { urls: 'stun:freestun.net:3478' },
+
+    //{ urls: 'turn:freestun.net:3478', username: 'free', credential: 'free' },
+    // Presumably traffic limited. Can generate new credentials at https://speed.cloudflare.com/turn-creds
+    // Also https://developers.cloudflare.com/calls/ 1 TB/month, and $0.05 /GB after that.
+    { urls: 'turn:turn.speed.cloudflare.com:50000', username: '826226244cd6e5edb3f55749b796235f420fe5ee78895e0dd7d2baa45e1f7a8f49e9239e78691ab38b72ce016471f7746f5277dcef84ad79fc60f8020b132c73', credential: 'aba9b169546eb6dcc7bfb1cdf34544cf95b5161d602e3b5fa7c8342b2e9802fb' }
+
+    // See also:
+    // https://fastturn.net/ Currently 500MB/month? (25 GB/month for $9/month)
+    // https://xirsys.com/pricing/ 500 MB/month (50 GB/month for $33/month)
+    // Also https://www.npmjs.com/package/node-turn or https://meetrix.io/blog/webrtc/coturn/installation.html
+  ];
+  constructor({configuration = {iceServers: WebRTC.iceServers}, ...properties}) {
     Object.assign(this, properties);
 
-    this.pc = new wrtc.RTCPeerConnection({ iceServers: [] });
+    this.pc = new wrtc.RTCPeerConnection(configuration);
     const {promise, resolve} = Promise.withResolvers();
     promise.resolve = resolve;
     this.closed = promise;
-    this.pc.addEventListener('connectionstatechange', () => {
-      this.log('connectionstatechange', this.pc.signalingState, this.pc.connectionState);
+    // Safari doesn't fire signalingstatechange for closing activity.
+    this.pc.addEventListener('connectionstatechange', () => { // Only fires by action from other side.
       if (['new', 'connecting', 'connected'].includes(this.pc.connectionState)) return;
+      this.log('connectionstatechange signaling/connection:', this.pc.signalingState, this.pc.connectionState);
       resolve(this.pc);
     });
     
@@ -45,7 +62,7 @@ export class WebRTC {
     };
   }
   async close() {
-    await this.closeDataChannels(); // I've seen Chrome hang if this is ommitted.
+    // Do not try to close or wait for data channels. It confuses Safari.
     this.pc.close();
     this.closed.resolve(this.pc); // We do not automatically receive 'connectionstatechange' when our side explicitly closes. (Only if the other does.)
     return this.closed;
@@ -130,16 +147,6 @@ export class WebRTC {
     const {promise, resolve, reject} = Promise.withResolvers();
     Object.assign(promise, {resolve, reject});
     return this.dataChannelPromises[name] = promise;
-  }
-  async closeDataChannels() { // Kill 'em all, and don't resolve until they are dead.
-    for (const dc of Object.values(this.dataChannels)) {
-      delete this.dataChannels[dc.label];
-      delete this[dc.label];
-      if (dc.readyState === 'closed') continue;
-      const closed = new Promise(resolve => dc.onclose = () => resolve());
-      dc.close();
-      await closed;
-    }
   }
 }
 
