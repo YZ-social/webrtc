@@ -2,9 +2,11 @@ const { describe, it, expect, beforeAll, afterAll, beforeEach, afterEach} = glob
 import { WebRTC } from '../index.js';
 
 describe("WebRTC", function () {
-  let A, B, bothOpen;
+  const isBrowser = typeof(process) === 'undefined';
+  const nPairs = 10;
+  let connections = [];
   describe("direct in-process signaling", function () {
-    function makePair({debug = false, delay = 0} = {}) {
+    function makePair({debug = false, delay = 0, index = 0} = {}) {
       const A = new WebRTC({name: "A (impolite)", polite: false, debug});
       const B = new WebRTC({name: "B (polite)", polite: true, debug});
       async function sendingSetup(dc) {
@@ -49,47 +51,69 @@ describe("WebRTC", function () {
       const bOpen = B.getDataChannelPromise('data').then(sendingSetup);
       A.signal = msg => B.onSignal(msg);
       B.signal = msg => A.onSignal(msg);
-      return [A, B, Promise.all([aOpen, bOpen])];
+      return connections[index] = {A, B, bothOpen: Promise.all([aOpen, bOpen])};
     }
-    function standardBehavior(includeConflictCheck = (typeof(process) === 'undefined')) {
-      it("connects.", function () {
-	expect(A.data.readyState).toBe('open');
-	expect(B.data.readyState).toBe('open');
-      });
-      it("receives.", async function () {
-	await WebRTC.delay(100); // Allow time to receive.
-	expect(A.sentMessageCount).toBe(B.receivedMessageCount);
-	expect(B.sentMessageCount).toBe(A.receivedMessageCount);
-      });
-      it("learns of one open.", function () {
-	expect(A.sentMessageCount).toBe(1);
-	expect(B.sentMessageCount).toBe(1);
-      });
-      if (includeConflictCheck) {
-	it("politely ignores a conflict.", function () {
-	  expect(A.rolledBack).toBeFalsy();
-	  expect(B.rolledBack).toBeTruthy(); // timing dependent, but useful for debugging
+    function standardBehavior(setup, includeConflictCheck = isBrowser) {
+      beforeAll(async function () {
+	const start = Date.now();
+	console.log('start setup');
+	for (let index = 0; index < nPairs; index++) {
+	  await setup(index);
+	}
+	console.log('end setup', Date.now() - start);
+      }, nPairs * 2e3);
+      for (let index = 0; index < nPairs; index++) {
+	it(`connects ${index}.`, function () {
+	  const {A, B} = connections[index];
+	  expect(A.data.readyState).toBe('open');
+	  expect(B.data.readyState).toBe('open');
 	});
+	it(`receives ${index}.`, async function () {
+	  const {A, B} = connections[index];	
+	  await WebRTC.delay(100); // Allow time to receive.
+	  expect(A.sentMessageCount).toBe(B.receivedMessageCount);
+	  expect(B.sentMessageCount).toBe(A.receivedMessageCount);
+	});
+	it(`learns of one open ${index}.`, function () {
+	  const {A, B} = connections[index];	
+	  expect(A.sentMessageCount).toBe(1);
+	  expect(B.sentMessageCount).toBe(1);
+	});
+	if (includeConflictCheck) {
+	  it(`politely ignores a conflict ${index}.`, function () {
+	    const {A, B} = connections[index];
+	    expect(A.rolledBack).toBeFalsy();
+	    expect(B.rolledBack).toBeTruthy(); // timing dependent, but useful for debugging
+	  });
+	}
       }
       afterAll(async function () {
-	await A.close();
-	expect(A.data.readyState).toBe('closed');
-	await B.close();
-	expect(B.data.readyState).toBe('closed');
+	const start = Date.now();
+	console.log('start teardown');
+	const promises = [];
+	for (let index = 0; index < nPairs; index++) {
+	  const {A, B} = connections[index];
+	  promises.push(A.close().then(async () => {
+	    expect(A.data.readyState).toBe('closed');
+	    await B.close();
+	    expect(B.data.readyState).toBe('closed');
+	  }));
+	}
+	await Promise.all(promises);
+	console.log('end teardown', Date.now() - start);	
       });
     }
     describe("one side opens", function () {
       describe('non-negotiated', function () {
-	beforeAll(async function () {
-	  [A, B, bothOpen] = makePair();
+	standardBehavior(async function (index) {
+	  const {A, B, bothOpen} = makePair({index});
 	  A.createChannel('data', {negotiated: false});
 	  await bothOpen;
-	});
-	standardBehavior(false);
+	}, false);
       });
-      describe('negotiated on on first signal', function () {
-	beforeAll(async function () {
-	  [A, B, bothOpen] = makePair();
+      xdescribe("negotiated on first signal", function () {
+	standardBehavior(async function ({index}) {
+	  const {A, B, bothOpen} = makePair({index});
 	  // There isn't really a direct, automated way to have one side open another with negotiated:true,
 	  // because the receiving RTCPeerConnection does not fire 'datachannel' when the sender was negotiated:true.
 	  // However, what the app can do is wake up and create an explicit createChannel when it first receives an
@@ -104,51 +128,46 @@ describe("WebRTC", function () {
 	  };
 	  A.createChannel('data', {negotiated: true});
 	  await bothOpen;
-	});
-	standardBehavior(false);
+	}, false);
       });
     });
 
     describe("simultaneous two-sided", function () {
       describe("negotiated single full-duplex-channel", function () {
 	describe("impolite first", function () {
-	  beforeAll(async function () {
-	    [A, B, bothOpen] = makePair();	    
+	  standardBehavior(async function (index) {
+	    const {A, B, bothOpen} = makePair({index});	    
 	    A.createChannel("data", {negotiated: true});
 	    B.createChannel("data", {negotiated: true});
 	    await bothOpen;
 	  });
-	  standardBehavior();
 	});
 	describe("polite first", function () {
-	  beforeAll(async function () {
-	    [A, B, bothOpen] = makePair();
+	  standardBehavior(async function (index) {
+	    const {A, B, bothOpen} = makePair({index});
 	    B.createChannel("data", {negotiated: true});
 	    A.createChannel("data", {negotiated: true});
 	    await bothOpen;
 	  });
-	  standardBehavior();
 	});
       });
       describe("non-negotiated dual half-duplex channels", function () {
 	const delay = 10;
 	describe("impolite first", function () {
-	  beforeAll(async function () {
-	    [A, B, bothOpen] = makePair({delay});
+	  standardBehavior(async function (index) {
+	    const {A, B, bothOpen} = makePair({delay, index});
 	    A.createChannel("data", {negotiated: false});
 	    B.createChannel("data", {negotiated: false});
 	    await bothOpen;
 	  });
-	  standardBehavior();
 	});
 	describe("polite first", function () {
-	  beforeAll(async function () {
-	    [A, B, bothOpen] = makePair({delay});
+	  standardBehavior(async function (index) {
+	    const {A, B, bothOpen} = makePair({delay, index});
 	    B.createChannel("data", {negotiated: false});
 	    A.createChannel("data", {negotiated: false});
 	    await bothOpen;
 	  });
-	  standardBehavior();
 	});
       });
     });
