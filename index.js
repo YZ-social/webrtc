@@ -7,9 +7,11 @@ export class WebRTC {
 
     this.pc = new wrtc.RTCPeerConnection({ iceServers: [] });
     const {promise, resolve} = Promise.withResolvers();
+    promise.resolve = resolve;
     this.closed = promise;
-    this.pc.addEventListener('signalingstatechange', () => {
-      if (this.pc.signalingState !== 'closed') return;
+    this.pc.addEventListener('connectionstatechange', () => {
+      this.log('connectionstatechange', this.pc.signalingState, this.pc.connectionState);
+      if (['new', 'connecting', 'connected'].includes(this.pc.connectionState)) return;
       resolve(this.pc);
     });
     
@@ -45,14 +47,14 @@ export class WebRTC {
   async close() {
     await this.closeDataChannels(); // I've seen Chrome hang if this is ommitted.
     this.pc.close();
-    if (this.pc.signalingState === 'closed') return Promise.resolve();
+    this.closed.resolve(this.pc); // We do not automatically receive 'connectionstatechange' when our side explicitly closes. (Only if the other does.)
     return this.closed;
   }
   log(...rest) {
     if (this.debug) console.log(this.name, ...rest);
   }
-  static delay(ms) {
-    return new Promise(resolve => setTimeout(resolve, ms));
+  static delay(ms, value) {
+    return new Promise(resolve => setTimeout(resolve, ms, value));
   }
 
   // Must include NodeJS, and must not include Chrome/Edge. Safari and Firefox can be either.
@@ -131,6 +133,8 @@ export class WebRTC {
   }
   async closeDataChannels() { // Kill 'em all, and don't resolve until they are dead.
     for (const dc of Object.values(this.dataChannels)) {
+      delete this.dataChannels[dc.label];
+      delete this[dc.label];
       if (dc.readyState === 'closed') continue;
       const closed = new Promise(resolve => dc.onclose = () => resolve());
       dc.close();
