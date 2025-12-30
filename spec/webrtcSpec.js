@@ -3,11 +3,16 @@ import { WebRTC } from '../index.js';
 
 describe("WebRTC", function () {
   const isBrowser = typeof(process) === 'undefined';
-  const nPairs = 50; // maximum without negotiated on first signal: nodejs:83, firefox:150+, safari:85+ but gets confused with closing, chrome/edge:50(?)
+  // maximums
+  // 1 channel pair, without negotiated on first signal: nodejs:83, firefox:150+, safari:85+ but gets confused with closing, chrome/edge:50(?)
+  // 50 works across the board with one channel pair
+  // On Safari (only), anything more than 32 pair starts to loose messages on the SECOND channel.
+  const nPairs = 32;
   let connections = [];
   describe("direct in-process signaling", function () {
     function makePair({debug = false, delay = 0, index = 0} = {}) {
-      const configuration = { iceServers: [] };
+      //const configuration = { iceServers: [] };
+      const configuration = { iceServers: WebRTC.iceServers };
       const A = new WebRTC({name: `A (impolite) ${index}`, polite: false, debug, configuration});
       const B = new WebRTC({name: `B (polite) ${index}`, polite: true, debug, configuration});
       async function sendingSetup(dc) {
@@ -54,14 +59,16 @@ describe("WebRTC", function () {
       B.signal = msg => A.onSignal(msg);
       return connections[index] = {A, B, bothOpen: Promise.all([aOpen, bOpen])};
     }
-    function standardBehavior(setup, includeConflictCheck = isBrowser) {
+    function standardBehavior(setup, {includeConflictCheck = isBrowser, includeSecondChannel = true} = {}) {
       beforeAll(async function () {
         const start = Date.now();
         console.log('start setup');
         for (let index = 0; index < nPairs; index++) {
           await setup({index});
         }
+	//await Promise.all(connections.map(connection => connection.bothOpen));
         console.log('end setup', Date.now() - start);
+	await WebRTC.delay(1e3); // Allow time to receive.
       }, nPairs * 1e3);
       for (let index = 0; index < nPairs; index++) {
         it(`connects ${index}.`, function () {
@@ -71,7 +78,7 @@ describe("WebRTC", function () {
         });
         it(`receives ${index}.`, async function () {
           const {A, B} = connections[index];    
-          await WebRTC.delay(100); // Allow time to receive.
+          //await WebRTC.delay(100); // Allow time to receive.
           expect(A.sentMessageCount).toBe(B.receivedMessageCount);
           expect(B.sentMessageCount).toBe(A.receivedMessageCount);
         });
@@ -80,6 +87,26 @@ describe("WebRTC", function () {
           expect(A.sentMessageCount).toBe(1);
           expect(B.sentMessageCount).toBe(1);
         });
+	if (includeSecondChannel) {
+	  it(`handles second channel ${index}.`, async function () {
+	    const {A, B} = connections[index];
+	    await WebRTC.delay(1e3);
+	    const aOpen = A.getDataChannelPromise('second');
+	    const bOpen = B.getDataChannelPromise('second');
+	    const a = A.createChannel('second', {negotiated: true, id: 200});
+	    const b = B.createChannel('second', {negotiated: true, id: 200});
+	    const dca = await aOpen;
+	    let gotit = new Promise(resolve => {
+	      dca.onmessage = event => resolve(event.data);
+	    });
+	    const dcb = await bOpen;
+	    console.log({dca, dcb});
+	    const start = Date.now();
+	    dcb.send('message');
+	    expect(await Promise.race([gotit, WebRTC.delay(2e3, 'timeout')])).toBe('message');
+	    console.log('transmission took', Date.now() - start);
+	  });
+	}
         if (includeConflictCheck) {
           it(`politely ignores a conflict ${index}.`, function () {
             const {A, B} = connections[index];
@@ -114,7 +141,7 @@ describe("WebRTC", function () {
           const {A, B, bothOpen} = makePair({index});
           A.createChannel('data', {negotiated: false});
           await bothOpen;
-        }, false);
+        }, {includeConflictCheck: false, includeSecondChannel: false});
       });
       describe("negotiated on first signal", function () {
         standardBehavior(async function ({index}) {
@@ -133,7 +160,7 @@ describe("WebRTC", function () {
           };
           A.createChannel('data', {negotiated: true});
           await bothOpen;
-        }, false);
+        }, {includeConflictCheck: false});
       });
     });
 

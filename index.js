@@ -39,13 +39,7 @@ export class WebRTC {
       if (!e.candidate) return;
       this.signal({ candidate: e.candidate });
     };
-    this.pc.ondatachannel = e => { // Fires only on the answer side if the offer side opened with negotiated:false
-      // This our chance to setupChannel, just as if we had called createChannel
-      const dc = e.channel;
-      this.log('ondatachannel:', dc.label, dc.id, dc.readyState, dc.negotiated);
-      this.setupChannel(dc);
-      dc.onopen(); // It had been opened before we setup, so invoke handler now.
-    };
+    this.pc.ondatachannel = e => this.ondatachannel(e.channel);
     this.pc.onnegotiationneeded = async () => {
       try {
         this.makingOffer = true;
@@ -119,12 +113,9 @@ export class WebRTC {
         this.signal({ description: this.pc.localDescription });
       }
     } else if (candidate) {
-      try {
-	//this.log('add ice');
-        await this.pc.addIceCandidate(candidate);
-      } catch (e) {
-        if (!this.ignoreOffer) throw e;
-      }
+      //this.log('add ice');
+      await this.pc.addIceCandidate(candidate)
+	.catch(e => { if (!this.ignoreOffer && this.pc.connectionState !== 'closed') throw e; });
     }
   }
 
@@ -137,10 +128,19 @@ export class WebRTC {
       this.log('channel onopen:', dc.label, dc.id, dc.readyState, 'negotiated:', dc.negotiated);
       this.dataChannelPromises[dc.label]?.resolve(this[dc.label]);
     };
+    if (dc.readyState === 'open') dc.onopen();
+    return dc;
+  }
+  ondatachannel(dc) {
+    // Fires only on the answer side if the offer side opened with negotiated:false
+    // This our chance to setupChannel, just as if we had called createChannel
+    this.log('ondatachannel:', dc.label, dc.id, dc.readyState, dc.negotiated);
+    this.setupChannel(dc);
+    dc.onopen(); // It had been opened before we setup, so invoke handler now.
   }
   channelId = 128; // Non-negotiated channel.id get assigned at open by the peer, starting with 0. This avoids conflicts.
   createChannel(name = 'data', {negotiated = false, id = this.channelId++, ...options} = {}) { // Explicitly create channel and set it up.
-    this.setupChannel(this.pc.createDataChannel(name, {negotiated, id, ...options}));
+    return this.setupChannel(this.pc.createDataChannel(name, {negotiated, id, ...options}));
   }
   dataChannelPromises = {};
   getDataChannelPromise(name = 'data') { // Promise to resolve when opened, WITHOUT actually creating one.
