@@ -68,7 +68,6 @@ describe("WebRTC", function () {
         }
 	//await Promise.all(connections.map(connection => connection.bothOpen));
         console.log('end setup', Date.now() - start);
-	await WebRTC.delay(1e3); // Allow time to receive.
       }, nPairs * 1e3);
       for (let index = 0; index < nPairs; index++) {
         it(`connects ${index}.`, function () {
@@ -78,9 +77,9 @@ describe("WebRTC", function () {
         });
         it(`receives ${index}.`, async function () {
           const {A, B} = connections[index];    
-          //await WebRTC.delay(100); // Allow time to receive.
-          expect(A.sentMessageCount).toBe(B.receivedMessageCount);
-          expect(B.sentMessageCount).toBe(A.receivedMessageCount);
+          await WebRTC.delay(200); // Allow time to receive.
+          expect(B.receivedMessageCount).toBe(A.sentMessageCount);
+          expect(A.receivedMessageCount).toBe(B.sentMessageCount);
         });
         it(`learns of one open ${index}.`, function () {
           const {A, B} = connections[index];    
@@ -100,11 +99,9 @@ describe("WebRTC", function () {
 	      dca.onmessage = event => resolve(event.data);
 	    });
 	    const dcb = await bOpen;
-	    console.log({dca, dcb});
 	    const start = Date.now();
 	    dcb.send('message');
 	    expect(await Promise.race([gotit, WebRTC.delay(2e3, 'timeout')])).toBe('message');
-	    console.log('transmission took', Date.now() - start);
 	  });
 	}
         if (includeConflictCheck) {
