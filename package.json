@@ -20,10 +20,7 @@
     "./router": "./routes/index.js"
   },
   "scripts": {
-    "test": "(npm run test-server &); npm run test-only; npm run stop-server",
-    "test-only": "npx jasmine",
-    "test-server": "node testServer.js",
-    "stop-server": "pkill webrtcTestServer"
+    "test": "npx jasmine"
   },
   "dependencies": {
     "@roamhq/wrtc": "^0.9.1"

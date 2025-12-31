@@ -7,7 +7,7 @@ describe("WebRTC", function () {
   // 1 channel pair, without negotiated on first signal: nodejs:83, firefox:150+, safari:85+ but gets confused with closing, chrome/edge:50(?)
   // 50 works across the board with one channel pair
   // On Safari (only), anything more than 32 pair starts to loose messages on the SECOND channel.
-  const nPairs = 32;
+  const nPairs = 32; //32;
   let connections = [];
   describe("direct in-process signaling", function () {
     function makePair({debug = false, delay = 0, index = 0} = {}) {
@@ -15,7 +15,7 @@ describe("WebRTC", function () {
       const configuration = { iceServers: WebRTC.iceServers };
       const A = new WebRTC({name: `A (impolite) ${index}`, polite: false, debug, configuration});
       const B = new WebRTC({name: `B (polite) ${index}`, polite: true, debug, configuration});
-      async function sendingSetup(dc) {
+      async function sendingSetup(dc) { // Given an open channel, set up to receive a message and then send a test message.
         const webrtc = dc.webrtc;
         webrtc.receivedMessageCount = webrtc.sentMessageCount = 0;
         dc.onmessage = e => {
@@ -55,8 +55,14 @@ describe("WebRTC", function () {
       }
       const aOpen = A.getDataChannelPromise('data').then(sendingSetup);
       const bOpen = B.getDataChannelPromise('data').then(sendingSetup);
-      A.signal = msg => B.onSignal(msg);
-      B.signal = msg => A.onSignal(msg);
+      const direct = false; // Does signal work direct/one-sided to the other? False makes a request that waits for a response.
+      if (direct) {
+	A.signal = message => B.onSignal(message);
+	B.signal = message => A.onSignal(message);
+      } else {
+	A.transferSignals = messages => B.respond(messages);
+	B.transferSignals = messages => A.respond(messages);
+      }
       return connections[index] = {A, B, bothOpen: Promise.all([aOpen, bOpen])};
     }
     function standardBehavior(setup, {includeConflictCheck = isBrowser, includeSecondChannel = true} = {}) {
@@ -92,8 +98,8 @@ describe("WebRTC", function () {
 	    await WebRTC.delay(1e3);
 	    const aOpen = A.getDataChannelPromise('second');
 	    const bOpen = B.getDataChannelPromise('second');
-	    const a = A.createChannel('second', {negotiated: true, id: 200});
-	    const b = B.createChannel('second', {negotiated: true, id: 200});
+	    const a = A.createChannel('second', {negotiated: true});
+	    const b = B.createChannel('second', {negotiated: true});
 	    const dca = await aOpen;
 	    let gotit = new Promise(resolve => {
 	      dca.onmessage = event => resolve(event.data);
