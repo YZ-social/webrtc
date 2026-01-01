@@ -30,6 +30,7 @@ export class WebRTC {
       const state = this.pc.connectionState;
       if (state === 'connected') return this.signalsReadyResolver?.();
       if (['new', 'connecting'].includes(state)) return null;
+      // closed, disconnected, failed: resolve this.closed promise.
       this.log('connectionstatechange signaling/connection:', this.pc.signalingState, state);
       return resolve(this.pc);
     });
@@ -40,6 +41,7 @@ export class WebRTC {
 
     this.pc.onicecandidate = e => {
       if (!e.candidate) return;
+      //if (this.pc.connectionState === 'connected') return; // Don't waste messages.  FIXME
       this.signal({ candidate: e.candidate });
     };
     this.pc.ondatachannel = e => this.ondatachannel(e.channel);
@@ -65,7 +67,7 @@ export class WebRTC {
     return this.closed;
   }
   flog(...rest) {
-    if (this.debug) console.log(new Date(), this.name, ...rest);
+    console.log(new Date(), this.name, ...rest);
   }
   log(...rest) {
     if (this.debug) this.flog(...rest);
@@ -84,7 +86,7 @@ export class WebRTC {
             (this.makingOffer || (this.pc.signalingState !== "stable" && !this.settingRemote));
 
       this.ignoreOffer = !this.polite && offerCollision;
-      this.flog('onSignal', description.type, this.pc.signalingState, 'making:', this.makingOffer, 'collision:', offerCollision, 'ignore:', this.ignoreOffer, 'settingRemote:', this.settingRemote);
+      this.log('onSignal', description.type, this.pc.signalingState, 'making:', this.makingOffer, 'collision:', offerCollision, 'ignore:', this.ignoreOffer, 'settingRemote:', this.settingRemote);
 
       if (this.ignoreOffer) {
         this.log("ignoring offer (collision)");
@@ -100,7 +102,7 @@ export class WebRTC {
 	    .then(() => this.log('set offer ok'), e => console.log(this.name, 'ignoring error setRemoteDescription with rollback', e))
 	]);
 	this.rolledBack = true; // For diagnostics.
-	this.flog('rolled back. producing answer');
+	this.log('rolled back. producing answer');
       } else {
 	this.settingRemote = true;
 	try {
@@ -122,7 +124,7 @@ export class WebRTC {
     } else if (candidate) {
       //this.log('add ice');
       if (this.pc.connectionState === 'closed' || !this.pc.remoteDescription?.type) { // Adding ice without a proceessed offer/answer will crash. Log and drop the candidate.
-	this.flog('icecandidate, connection:', this.pc.connectionState, 'signaling:', this.pc.signalingState, 'ice connection:', this.pc.iceConnectionState, 'gathering:', this.pc.iceGatheringState);
+	this.log('icecandidate, connection:', this.pc.connectionState, 'signaling:', this.pc.signalingState, 'ice connection:', this.pc.iceConnectionState, 'gathering:', this.pc.iceGatheringState);
 	return;
       }
       await this.pc.addIceCandidate(candidate)
@@ -137,15 +139,18 @@ export class WebRTC {
   }
   signalsReadyResolver = null;
   pendingSignals = [];
+  responseSerializer = Promise.resolve();
   async respond(signals = []) { // Apply a list of signals, and promise a list of responding signals as soon as any are available, or empty list when connected
     // This is used by a peer that is receiving signals in an out-of-band network request, and witing for a response. (Compare transferSignals.)
-    this.log('respond', signals.length, 'signals');
-    const {promise, resolve} = Promise.withResolvers;
-    this.signalsReadyResolver = resolve;
-    await this.onSignals(signals);
-    await promise;
-    this.signalsReadyResolver = null;
-    return this.collectPendingSignals();
+    return this.responseSerializer = this.responseSerializer.then(async () => {
+      this.log('respond', signals.length, 'signals');
+      const {promise, resolve} = Promise.withResolvers;
+      this.signalsReadyResolver = resolve;
+      await this.onSignals(signals);
+      await promise;
+      this.signalsReadyResolver = null;
+      return this.collectPendingSignals();
+    });
   }
   collectPendingSignals() { // Return any pendingSignals and reset them.
     // We do not assume a promise can resolve to them because more could be added between the resolve and the (await promise).
@@ -172,8 +177,28 @@ export class WebRTC {
       return;
     }
     if (!this.transferSignals) return; // Just keep collecting until the next call to respond();
+    this.sendPending();
+  }
+  followupTimer = null;
+  sendPending(force = false) { // Send over any signals we have, and process the response.
+    this.lastOutboundSignal = Date.now();
+    clearTimeout(this.followupTimer);
     this.transferSerializer = this.transferSerializer.then(() => {
-      return this.transferSignals(this.collectPendingSignals()).then(response => this.onSignals(response));
+      const signals = this.collectPendingSignals();
+      if (!force && !signals.length) return null; // A stack of pending signals got rolled together and pending is now empty.
+      this.lastOutboundSend = Date.now();
+      this.log('sending', signals.length, 'signals');
+      return this.transferSignals(signals).then(async response => {
+	clearTimeout(this.followupTimer);
+	this.lastResponse = Date.now();
+	await this.onSignals(response);
+	if (this.pc.connectionState === 'connected') return;
+	this.followupTimer = setTimeout(() => { // We may have sent everything we had, but still need to poke in order to get more ice from them.
+	  if (this.pc.connectionState === 'connected') return;
+	  this.log('************** nothing new to send', this.pc.connectionState, ' ************************');
+	  this.sendPending(true);
+	}, 500);
+      });
     });
   }
   transferSerializer = Promise.resolve();
