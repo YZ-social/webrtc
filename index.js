@@ -97,9 +97,9 @@ export class WebRTC {
 	// The current wrtc for NodeJS doesn't yet support automatic rollback. We need to make it explicit.
 	await Promise.all([ // See https://blog.mozilla.org/webrtc/perfect-negotiation-in-webrtc/
           this.pc.setLocalDescription({type: 'rollback'})
-	    .then(() => this.log('rollback ok'), e => console.log(this.name, 'ignoring error in rollback', e)),
+	    .then(() => this.log('rollback ok'), e => this.log(this.name, 'ignoring error in rollback', e)),
           this.pc.setRemoteDescription(description)
-	    .then(() => this.log('set offer ok'), e => console.log(this.name, 'ignoring error setRemoteDescription with rollback', e))
+	    .then(() => this.log('set offer ok'), e => this.log(this.name, 'ignoring error setRemoteDescription with rollback', e))
 	]);
 	this.rolledBack = true; // For diagnostics.
 	this.log('rolled back. producing answer');
@@ -107,7 +107,7 @@ export class WebRTC {
 	this.settingRemote = true;
 	try {
 	  await this.pc.setRemoteDescription(description)
-	    .catch(e => console.log(this.name, 'ignoring error in setRemoteDescription while in state', this.pc.signalingState, e));
+	    .catch(e => this[offerCollision ? 'log' : 'flog'](this.name, 'ignoring error in setRemoteDescription while in state', this.pc.signalingState, e));
 	  if (offerCollision) this.rolledBack = true;
 	} finally {
 	  this.settingRemote = false;
@@ -117,7 +117,7 @@ export class WebRTC {
       if (description.type === "offer") {
 	const answer = await this.pc.createAnswer();
         await this.pc.setLocalDescription(answer)
-	  .catch(e => console.log(this.name, 'ignoring error setLocalDescription of answer', e));
+	  .catch(e => this.flog(this.name, 'ignoring error setLocalDescription of answer', e));
         this.signal({ description: this.pc.localDescription });
       }
 
@@ -128,7 +128,9 @@ export class WebRTC {
 	return;
       }
       await this.pc.addIceCandidate(candidate)
-	.catch(e => { if (!this.ignoreOffer && this.pc.connectionState !== 'closed') throw e; });
+	.catch(e => {
+	  if (!this.ignoreOffer && this.pc.connectionState !== 'closed') throw e;
+	});
     }
   }
 

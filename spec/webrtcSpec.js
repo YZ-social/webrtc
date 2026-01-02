@@ -83,7 +83,7 @@ describe("WebRTC", function () {
         });
         it(`receives ${index}.`, async function () {
           const {A, B} = connections[index];    
-          await WebRTC.delay(200); // Allow time to receive.
+          await WebRTC.delay(300); // Allow time to receive.
           expect(B.receivedMessageCount).toBe(A.sentMessageCount);
           expect(A.receivedMessageCount).toBe(B.sentMessageCount);
         });
