@@ -18,10 +18,13 @@ describe("WebRTC", function () {
       async function sendingSetup(dc) { // Given an open channel, set up to receive a message and then send a test message.
         const webrtc = dc.webrtc;
         webrtc.receivedMessageCount = webrtc.sentMessageCount = 0;
-        dc.onmessage = e => {
-          webrtc.receivedMessageCount++;
-          webrtc.log('got message on', dc.label, dc.id, e.data);
-        };
+	webrtc.gotData = new Promise(resolve => {
+          dc.onmessage = e => {
+            webrtc.receivedMessageCount++;
+            webrtc.log('got message on', dc.label, dc.id, e.data);
+	    resolve(e.data);
+          };
+	});
         webrtc.sentMessageCount++;
 
         // Subtle:
@@ -83,8 +86,9 @@ describe("WebRTC", function () {
         });
         it(`receives ${index}.`, async function () {
           const {A, B} = connections[index];    
-          await WebRTC.delay(300); // Allow time to receive.
+          await B.gotData;
           expect(B.receivedMessageCount).toBe(A.sentMessageCount);
+          await A.gotData;	  
           expect(A.receivedMessageCount).toBe(B.sentMessageCount);
         });
         it(`learns of one open ${index}.`, function () {
@@ -95,7 +99,6 @@ describe("WebRTC", function () {
 	if (includeSecondChannel) {
 	  it(`handles second channel ${index}.`, async function () {
 	    const {A, B} = connections[index];
-	    await WebRTC.delay(1e3);
 	    const aOpen = A.getDataChannelPromise('second');
 	    const bOpen = B.getDataChannelPromise('second');
 	    const a = A.createChannel('second', {negotiated: true});
