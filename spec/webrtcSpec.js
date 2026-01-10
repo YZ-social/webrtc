@@ -3,11 +3,6 @@ import { WebRTC } from '../index.js';
 
 describe("WebRTC", function () {
   const isBrowser = typeof(process) === 'undefined';
-  // maximums
-  // 1 channel pair, without negotiated on first signal: nodejs:83, firefox:150+, safari:85+ but gets confused with closing, chrome/edge:50(?)
-  // 50 works across the board with one channel pair
-  // On Safari (only), anything more than 32 pair starts to loose messages on the SECOND channel.
-  const nPairs = 32; //32;
   let connections = [];
   describe("direct in-process signaling", function () {
     function makePair({debug = false, delay = 0, index = 0} = {}) {
@@ -68,10 +63,15 @@ describe("WebRTC", function () {
       }
       return connections[index] = {A, B, bothOpen: Promise.all([aOpen, bOpen])};
     }
-    function standardBehavior(setup, {includeConflictCheck = isBrowser, includeSecondChannel = true} = {}) {
+    function standardBehavior(setup, {includeConflictCheck = isBrowser, includeSecondChannel = false} = {}) {
+      // maximums
+      // 1 channel pair, without negotiated on first signal: nodejs:83, firefox:150+, safari:85+ but gets confused with closing, chrome/edge:50(?)
+      // 50 works across the board with one channel pair
+      // On Safari (only), anything more than 32 pair starts to loose messages on the SECOND channel.
+      const nPairs = includeSecondChannel ? 32 : 62; //32;
       beforeAll(async function () {
         const start = Date.now();
-        console.log('start setup');
+        console.log(new Date(), 'start setup', nPairs, 'pairs');
         for (let index = 0; index < nPairs; index++) {
           await setup({index});
         }

@@ -1,0 +1,31 @@
+name: CI/CD Build and Test
+
+on:
+  push:
+    branches:
+      - main
+      - develop
+  pull_request:
+    branches:
+      - main
+      - develop
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest # Uses the latest Ubuntu runner
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4 # Action to check out your repository code
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4 # Action to set up Node.js environment
+        with:
+          node-version: '22'
+          cache: 'npm' # Caches npm dependencies to speed up subsequent runs
+
+      - name: Install Dependencies
+        run: npm i # Some folks recommend 'npm ci', but I don't like the required package lock.
+
+      - name: Run Tests
+        run: npm test # Executes the 'test' script defined in your package.json
