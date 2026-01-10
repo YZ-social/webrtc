@@ -2,13 +2,10 @@ name: CI/CD Build and Test
 
 on:
   push:
-    branches:
-      - main
-      - develop
+    branches: [ main ]
   pull_request:
-    branches:
-      - main
-      - develop
+    branches: [ main ]
+  workflow_dispatch: # Allows manual running
 
 jobs:
   build-and-test:
