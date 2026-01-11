@@ -181,25 +181,26 @@ export class WebRTC {
     if (!this.transferSignals) return; // Just keep collecting until the next call to respond();
     this.sendPending();
   }
-  followupTimer = null;
+  //followupTimer = null;
   sendPending(force = false) { // Send over any signals we have, and process the response.
     this.lastOutboundSignal = Date.now();
-    clearTimeout(this.followupTimer);
+    //clearTimeout(this.followupTimer);
     this.transferSerializer = this.transferSerializer.then(() => {
       const signals = this.collectPendingSignals();
       if (!force && !signals.length) return null; // A stack of pending signals got rolled together and pending is now empty.
       this.lastOutboundSend = Date.now();
       this.log('sending', signals.length, 'signals');
       return this.transferSignals(signals).then(async response => {
-	clearTimeout(this.followupTimer);
+	//clearTimeout(this.followupTimer);
 	this.lastResponse = Date.now();
 	await this.onSignals(response);
-	if (this.pc.connectionState === 'connected') return;
-	this.followupTimer = setTimeout(() => { // We may have sent everything we had, but still need to poke in order to get more ice from them.
-	  if (this.pc.connectionState === 'connected') return;
-	  this.log('************** nothing new to send', this.pc.connectionState, ' ************************');
-	  this.sendPending(true);
-	}, 500);
+	// if (this.pc.connectionState === 'connected') return;
+	// this.followupTimer = setTimeout(() => { // We may have sent everything we had, but still need to poke in order to get more ice from them.
+	//   if (this.pc.connectionState === 'connected') return;
+	// Note: if we bring this back, stop after closed!
+	//   this.log('************** nothing new to send', this.pc.connectionState, ' ************************');
+	//   this.sendPending(true);
+	// }, 500);
       });
     });
   }

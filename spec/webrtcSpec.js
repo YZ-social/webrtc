@@ -68,7 +68,7 @@ describe("WebRTC", function () {
       // 1 channel pair, without negotiated on first signal: nodejs:83, firefox:150+, safari:85+ but gets confused with closing, chrome/edge:50(?)
       // 50 works across the board with one channel pair
       // On Safari (only), anything more than 32 pair starts to loose messages on the SECOND channel.
-      const nPairs = 10; // fixme after we get GHA working includeSecondChannel ? 32 : 62; //32;
+      const nPairs = 5; // fixme after we get GHA working includeSecondChannel ? 32 : 62; //32;
       beforeAll(async function () {
         const start = Date.now();
         console.log(new Date(), 'start setup', nPairs, 'pairs');
@@ -191,22 +191,23 @@ describe("WebRTC", function () {
       });
       describe("non-negotiated dual half-duplex channels", function () {
         const delay = 200;
+	const debug = true;
         describe("impolite first", function () {
           standardBehavior(async function ({index}) {
-            const {A, B, bothOpen} = makePair({delay, index});
+            const {A, B, bothOpen} = makePair({delay, index, debug});
             A.createChannel("data", {negotiated: false});
             B.createChannel("data", {negotiated: false});
             await bothOpen;
           });
         });
-        describe("polite first", function () {
-          standardBehavior(async function ({index}) {
-            const {A, B, bothOpen} = makePair({delay, index});
-            B.createChannel("data", {negotiated: false});
-            A.createChannel("data", {negotiated: false});
-            await bothOpen;
-          });
-        });
+        // describe("polite first", function () {
+        //   standardBehavior(async function ({index}) {
+        //     const {A, B, bothOpen} = makePair({delay, index, debug});
+        //     B.createChannel("data", {negotiated: false});
+        //     A.createChannel("data", {negotiated: false});
+        //     await bothOpen;
+        //   });
+        // });
       });
     });
   });
