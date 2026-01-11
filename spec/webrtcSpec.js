@@ -53,7 +53,7 @@ describe("WebRTC", function () {
       }
       const aOpen = A.getDataChannelPromise('data').then(sendingSetup);
       const bOpen = B.getDataChannelPromise('data').then(sendingSetup);
-      const direct = false; // Does signal work direct/one-sided to the other? False makes a request that waits for a response.
+      const direct = true; // Does signal work direct/one-sided to the other? False makes a request that waits for a response.
       if (direct) {
 	A.signal = message => B.onSignal(message);
 	B.signal = message => A.onSignal(message);
