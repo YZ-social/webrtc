@@ -190,7 +190,7 @@ describe("WebRTC", function () {
         });
       });
       describe("non-negotiated dual half-duplex channels", function () {
-        const delay = 100;
+        const delay = 200;
         describe("impolite first", function () {
           standardBehavior(async function ({index}) {
             const {A, B, bothOpen} = makePair({delay, index});
