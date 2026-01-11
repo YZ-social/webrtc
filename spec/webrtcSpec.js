@@ -12,15 +12,8 @@ describe("WebRTC", function () {
       const B = new WebRTC({name: `B (polite) ${index}`, polite: true, debug, configuration});
       async function sendingSetup(dc) { // Given an open channel, set up to receive a message and then send a test message.
         const webrtc = dc.webrtc;
+        webrtc.log('got open channel', dc.label, dc.id, 'gotDataPromise:', webrtc.gotData ? 'exists' : 'not yet wet');
         webrtc.receivedMessageCount = webrtc.sentMessageCount = 0;
-	webrtc.gotData = new Promise(resolve => {
-          dc.onmessage = e => {
-            webrtc.receivedMessageCount++;
-            webrtc.log('got message on', dc.label, dc.id, e.data);
-	    resolve(e.data);
-          };
-	});
-        webrtc.sentMessageCount++;
 
         // Subtle:
         //
@@ -28,7 +21,7 @@ describe("WebRTC", function () {
         // resolve on that side of the connection when the channel is open. The other side will internally receive a
         // datachannel event and we arrange for that side to then also resolve a getDataChannelPromise for that name.
         //
-        // If only wide side creates the channel, things work out smoothly. Each side ends up resolving the promise for a
+        // If only one side creates the channel, things work out smoothly. Each side ends up resolving the promise for a
         // channel of the given name. The id is as defaulted or specified if negotiated:true, else an internally determined
         // unique id is used.
         //
@@ -36,18 +29,30 @@ describe("WebRTC", function () {
         // are overlappaing offers. One side backs down and there ends up being one channel with the specified id. (The default
         // id will be the same on both sides IFF any multiple data channels are created in the same order on both sides.)
         //
-        // However, when negotiated:false, and both sides call createChannel simultaneously, things get complex. Counterintuitively,
-        // RTCPeerConnection arranges for the internall determined id to be unique between the two sides, so both get
+        // However, when negotiated:FALSE, and both sides call createChannel with a delay in betwen, things get complex. Counterintuitively,
+        // RTCPeerConnection arranges for the internally determined id to be unique between the two sides, so both get
         // two channels with the same name and different id. There will be two internal open events on each side: first for the
-        // channel that it created, and second for one that the other side created. There isn't any reason to do this (as
+        // channel that it created, and second for one that the other side created. (There likely isn't any reason to do this, as
         // opposed to specifying negotiated:true, unless the application needs each side to listen on one channel and send
-        // on the other. However, getDataChannelPromise return a promise based on the specified name alone, and it only
-        // resolves once. For compatibility with the single-sided case, we resolve the first channel (on each side, which
-        // are different ids). Thus we must attach onmessage to one channel and send on the other. On both sides, the
-        // first channel is what the promise resolves to, but after a delay, the second channel is available on webrtc[channelName].
+        // on the other.) However, getDataChannelPromise retursn a promise based on the specified name alone, and it only
+        // resolves once. For compatibility with the single-sided case, we resolve the first channel on each side, which
+        // are different ids. Ideally here we could attach onmessage to one channel and send on the other, but we cannot be sure
+	// of the events. So, for maximum compatibility in all cases, our test "applications" creates one webrtc.gotData promise
+	// that resolves on data from the onmessage handler hung on any-and-all data channels on each side.
+
+	if (!webrtc.gotData) {
+	  webrtc.gotData = new Promise(resolve => webrtc.gotDataResolver = resolve);
+	}
+        dc.onmessage = e => {
+          webrtc.receivedMessageCount++;
+          webrtc.log('got message on', dc.label, dc.id, e.data);
+	  webrtc.gotDataResolver(e.data);
+	};
+        webrtc.sentMessageCount++;
 
         if (!delay) return dc.send(`Hello from ${webrtc.name}`);
         await WebRTC.delay(delay);
+	webrtc.log('sendiing on data', webrtc.data.id);
         webrtc.data.send(`Hello from ${webrtc.name}`);
         return null;
       }
