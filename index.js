@@ -207,11 +207,12 @@ export class WebRTC {
   transferSerializer = Promise.resolve();
 
   dataChannels = {};
-  setupChannel(dc) { // Given an open or connecting channel, set it up in a unform way.
-    this.log('setup:', dc.label, dc.id, dc.readyState, 'negotiated:', dc.negotiated, 'exists:', !!this[dc.label]);
+  setupChannel(dc) { // Arrange for the data channel promise to resolve open, and do other setup.
+    // Called by explicit createChannel and also by ondatachannel.
+    this.log('setupChannel:', dc.label, dc.id, dc.readyState, 'negotiated:', dc.negotiated, 'exists:', !!this[dc.label]);
     this[dc.label] = this.dataChannels[dc.label] = dc;
     dc.webrtc = this;
-    dc.onopen = async () => {
+    dc.onopen = async () => { // Idempotent (except for logging), if we do not bash dataChannePromises[label] multiple times.
       this.log('channel onopen:', dc.label, dc.id, dc.readyState, 'negotiated:', dc.negotiated);
       this.dataChannelPromises[dc.label]?.resolve(this[dc.label]);
     };

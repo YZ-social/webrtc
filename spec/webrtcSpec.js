@@ -12,7 +12,7 @@ describe("WebRTC", function () {
       const B = new WebRTC({name: `B (polite) ${index}`, polite: true, debug, configuration});
       async function sendingSetup(dc) { // Given an open channel, set up to receive a message and then send a test message.
         const webrtc = dc.webrtc;
-        webrtc.log('got open channel', dc.label, dc.id, 'gotDataPromise:', webrtc.gotData ? 'exists' : 'not yet wet');
+        webrtc.log('got open channel', dc.label, dc.id, 'gotDataPromise:', webrtc.gotData ? 'exists' : 'not yet set');
         webrtc.receivedMessageCount = webrtc.sentMessageCount = 0;
 
         // Subtle:
@@ -42,19 +42,23 @@ describe("WebRTC", function () {
 
 	if (!webrtc.gotData) {
 	  webrtc.gotData = new Promise(resolve => webrtc.gotDataResolver = resolve);
+          dc.onmessage = e => {
+            webrtc.receivedMessageCount++;
+            webrtc.log('got message on', dc.label, dc.id, e.data);
+	    webrtc.gotDataResolver(e.data);
+	  };
 	}
-        dc.onmessage = e => {
-          webrtc.receivedMessageCount++;
-          webrtc.log('got message on', dc.label, dc.id, e.data);
-	  webrtc.gotDataResolver(e.data);
-	};
-        webrtc.sentMessageCount++;
 
-        if (!delay) return dc.send(`Hello from ${webrtc.name}`);
-        await WebRTC.delay(delay);
-	webrtc.log('sendiing on data', webrtc.data.id);
-        webrtc.data.send(`Hello from ${webrtc.name}`);
-        return null;
+	if (!webrtc.sentMessageCount) {
+	  webrtc.sentMessageCount++;
+          if (delay) {
+            await WebRTC.delay(delay);
+	    webrtc.log('sending on data', webrtc.data.id);
+            webrtc.data.send(`Hello from ${webrtc.name}`);
+	  } else {
+	    dc.send(`Hello from ${webrtc.name}`);
+	  }
+	}
       }
       const aOpen = A.getDataChannelPromise('data').then(sendingSetup);
       const bOpen = B.getDataChannelPromise('data').then(sendingSetup);
