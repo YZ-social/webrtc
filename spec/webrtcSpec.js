@@ -54,10 +54,9 @@ describe("WebRTC", function () {
           if (delay) {
             await WebRTC.delay(delay);
 	    webrtc.log('sending on data', webrtc.data.id);
-            webrtc.data.send(`Hello from ${webrtc.name}`);
-	  } else {
-	    dc.send(`Hello from ${webrtc.name}`);
+	    if (dc !== webrtc.data) webrtc.data.send(`Hello from ${webrtc.name}`);
 	  }
+	  dc.send(`Hello from ${webrtc.name}`);
 	}
       }
       const aOpen = A.getDataChannelPromise('data').then(sendingSetup);
