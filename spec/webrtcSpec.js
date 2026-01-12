@@ -10,11 +10,6 @@ describe("WebRTC", function () {
       const configuration = { iceServers: WebRTC.iceServers };
       const A = new WebRTC({name: `A (impolite) ${index}`, polite: false, debug, configuration});
       const B = new WebRTC({name: `B (polite) ${index}`, polite: true, debug, configuration});
-      async function sendingSetup(dc) { // Given an open channel, set up to receive a message and then send a test message.
-        const webrtc = dc.webrtc;
-        webrtc.log('got open channel', dc.label, dc.id, 'gotDataPromise:', webrtc.gotData ? 'exists' : 'not yet set');
-        webrtc.receivedMessageCount = webrtc.sentMessageCount = 0;
-
         // Subtle:
         //
         // An explicit createChannel() arranges for the promise created by getDataChannelPromise() of the same name to
@@ -34,33 +29,41 @@ describe("WebRTC", function () {
         // two channels with the same name and different id. There will be two internal open events on each side: first for the
         // channel that it created, and second for one that the other side created. (There likely isn't any reason to do this, as
         // opposed to specifying negotiated:true, unless the application needs each side to listen on one channel and send
-        // on the other.) However, getDataChannelPromise retursn a promise based on the specified name alone, and it only
-        // resolves once. For compatibility with the single-sided case, we resolve the first channel on each side, which
-        // are different ids. Ideally here we could attach onmessage to one channel and send on the other, but we cannot be sure
-	// of the events. So, for maximum compatibility in all cases, our test "applications" creates one webrtc.gotData promise
-	// that resolves on data from the onmessage handler hung on any-and-all data channels on each side.
-
-	if (!webrtc.gotData) {
-	  webrtc.gotData = new Promise(resolve => webrtc.gotDataResolver = resolve);
-          dc.onmessage = e => {
-            webrtc.receivedMessageCount++;
-            webrtc.log('got message on', dc.label, dc.id, e.data);
-	    webrtc.gotDataResolver(e.data);
-	  };
-	}
-
-	if (!webrtc.sentMessageCount) {
-	  webrtc.sentMessageCount++;
-          if (delay) {
-            await WebRTC.delay(delay);
-	    webrtc.log('sending on data', webrtc.data.id);
-	    if (dc !== webrtc.data) webrtc.data.send(`Hello from ${webrtc.name}`);
-	  }
-	  dc.send(`Hello from ${webrtc.name}`);
-	}
+        // on the other.)
+      async function receivingSetup(dc) {
+        const webrtc = dc.webrtc;
+        webrtc.log('got open recieving channel', dc.label, dc.id);
+	webrtc.ours = dc;
+	webrtc.receivedMessageCount = 0;
+	webrtc.gotData = new Promise(resolve => webrtc.gotDataResolver = resolve);
+        dc.onmessage = e => {
+          webrtc.receivedMessageCount++;
+          webrtc.log('got message on', dc.label, dc.id, e.data);
+	  webrtc.gotDataResolver(e.data);
+	};
+	return dc;
       }
-      const aOpen = A.getDataChannelPromise('data').then(sendingSetup);
-      const bOpen = B.getDataChannelPromise('data').then(sendingSetup);
+      async function sendingSetup(dc) {
+        const webrtc = dc.webrtc;
+	webrtc.log('got open sending channel', dc.label, dc.id);
+	webrtc.theirs = dc;
+        webrtc.sentMessageCount ||= 0;
+	webrtc.sentMessageCount++;
+        await WebRTC.delay(delay);
+	dc.send(`Hello from ${webrtc.name}`);
+	return dc;
+      }
+      const promises = [];
+      if (!delay) {
+	promises.push(A.getDataChannelPromise('data').then(receivingSetup).then(sendingSetup));
+	promises.push(B.getDataChannelPromise('data').then(receivingSetup).then(sendingSetup));
+      } else {
+	promises.push(A.getDataChannelPromise('data', 'Ours').then(receivingSetup));
+	promises.push(B.getDataChannelPromise('data', 'Ours').then(receivingSetup));
+	promises.push(A.getDataChannelPromise('data', 'Theirs').then(sendingSetup));
+	promises.push(B.getDataChannelPromise('data', 'Theirs').then(sendingSetup));
+      }
+	
       const direct = true; // Does signal work direct/one-sided to the other? False makes a request that waits for a response.
       if (direct) {
 	A.signal = message => B.onSignal(message);
@@ -69,7 +72,7 @@ describe("WebRTC", function () {
 	A.transferSignals = messages => B.respond(messages);
 	B.transferSignals = messages => A.respond(messages);
       }
-      return connections[index] = {A, B, bothOpen: Promise.all([aOpen, bOpen])};
+      return connections[index] = {A, B, bothOpen: Promise.all(promises)};
     }
     function standardBehavior(setup, {includeConflictCheck = isBrowser, includeSecondChannel = false} = {}) {
       // maximums
@@ -89,8 +92,10 @@ describe("WebRTC", function () {
       for (let index = 0; index < nPairs; index++) {
         it(`connects ${index}.`, function () {
           const {A, B} = connections[index];
-          expect(A.data.readyState).toBe('open');
-          expect(B.data.readyState).toBe('open');
+          expect(A.ours.readyState).toBe('open');
+          expect(B.ours.readyState).toBe('open');
+          expect(A.theirs.readyState).toBe('open');
+          expect(B.theirs.readyState).toBe('open');
         });
         it(`receives ${index}.`, async function () {
           const {A, B} = connections[index];    
@@ -151,6 +156,7 @@ describe("WebRTC", function () {
     }
     describe("one side opens", function () {
       describe('non-negotiated', function () {
+	beforeAll(function () {console.log('one-sided non-negotiated'); });
         standardBehavior(async function ({index}) {
           const {A, B, bothOpen} = makePair({index});
           A.createChannel('data', {negotiated: false});
@@ -158,6 +164,7 @@ describe("WebRTC", function () {
         }, {includeConflictCheck: false, includeSecondChannel: false});
       });
       describe("negotiated on first signal", function () {
+	beforeAll(function () {console.log('one-sided negotiated'); });
         standardBehavior(async function ({index}) {
           const {A, B, bothOpen} = makePair({index});
           // There isn't really a direct, automated way to have one side open another with negotiated:true,
@@ -181,6 +188,7 @@ describe("WebRTC", function () {
     describe("simultaneous two-sided", function () {
       describe("negotiated single full-duplex-channel", function () {
         describe("impolite first", function () {
+	  beforeAll(function () {console.log('two-sided negotiated impolite-first'); });
           standardBehavior(async function ({index}) {
             const {A, B, bothOpen} = makePair({index});     
             A.createChannel("data", {negotiated: true});
@@ -189,6 +197,7 @@ describe("WebRTC", function () {
           });
         });
         describe("polite first", function () {
+	  beforeAll(function () {console.log('two-sided negotiated polite-first');});
           standardBehavior(async function ({index}) {
             const {A, B, bothOpen} = makePair({index});
             B.createChannel("data", {negotiated: true});
@@ -199,8 +208,9 @@ describe("WebRTC", function () {
       });
       describe("non-negotiated dual half-duplex channels", function () {
         const delay = 200;
-	const debug = true;
+	const debug = false;
         describe("impolite first", function () {
+	  beforeAll(function () {console.log('two-sided non-negotiated impolite-first');});
           standardBehavior(async function ({index}) {
             const {A, B, bothOpen} = makePair({delay, index, debug});
             A.createChannel("data", {negotiated: false});
@@ -208,14 +218,15 @@ describe("WebRTC", function () {
             await bothOpen;
           });
         });
-        // describe("polite first", function () {
-        //   standardBehavior(async function ({index}) {
-        //     const {A, B, bothOpen} = makePair({delay, index, debug});
-        //     B.createChannel("data", {negotiated: false});
-        //     A.createChannel("data", {negotiated: false});
-        //     await bothOpen;
-        //   });
-        // });
+        describe("polite first", function () {
+	  beforeAll(function () {console.log('two-sided non-negotiated polite-first');});
+          standardBehavior(async function ({index}) {
+            const {A, B, bothOpen} = makePair({delay, index, debug});
+            B.createChannel("data", {negotiated: false});
+            A.createChannel("data", {negotiated: false});
+            await bothOpen;
+          });
+        });
       });
     });
   });

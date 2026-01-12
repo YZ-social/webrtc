@@ -206,17 +206,19 @@ export class WebRTC {
   }
   transferSerializer = Promise.resolve();
 
-  dataChannels = {};
   setupChannel(dc) { // Arrange for the data channel promise to resolve open, and do other setup.
-    // Called by explicit createChannel and also by ondatachannel.
-    this.log('setupChannel:', dc.label, dc.id, dc.readyState, 'negotiated:', dc.negotiated, 'exists:', !!this[dc.label]);
-    this[dc.label] = this.dataChannels[dc.label] = dc;
+    // Called by explicit createChannel ('ours' opened) and also by ondatachannel ('theirs' opened).
+    const { label, readyState } = dc;
+    const isTheirs = readyState === 'open'; // Came via ondatachannel.
+    this.log('setupChannel:', label, dc.id, readyState, 'negotiated:', dc.negotiated);
+    const kind = isTheirs ? 'Theirs' : 'Ours';
     dc.webrtc = this;
     dc.onopen = async () => { // Idempotent (except for logging), if we do not bash dataChannePromises[label] multiple times.
-      this.log('channel onopen:', dc.label, dc.id, dc.readyState, 'negotiated:', dc.negotiated);
-      this.dataChannelPromises[dc.label]?.resolve(this[dc.label]);
+      this.log('channel onopen:', label, dc.id, readyState, 'negotiated:', dc.negotiated);
+      this[this.restrictablePromiseKey()][label]?.resolve(dc);
+      this[this.restrictablePromiseKey(kind)][label]?.resolve(dc);
     };
-    if (dc.readyState === 'open') dc.onopen();
+    if (isTheirs) dc.onopen();
     return dc;
   }
   ondatachannel(dc) {
@@ -231,10 +233,18 @@ export class WebRTC {
     return this.setupChannel(this.pc.createDataChannel(name, {negotiated, id, ...options}));
   }
   dataChannelPromises = {};
-  getDataChannelPromise(name = 'data') { // Promise to resolve when opened, WITHOUT actually creating one.
+  dataChannelOursPromises = {};
+  dataChannelTheirsPromises = {};  
+  restrictablePromiseKey(restriction = '') { // The property in which store dataChannel promises of the specified restriction.
+    return `dataChannel${restriction}Promises`;
+  }
+  getDataChannelPromise(name = 'data', restriction = '') { // Promise to resolve when opened, WITHOUT actually creating one.
+    // The application can restrict this to being only a channel of 'ours' or 'theirs' (see setupChannel), which is useful for
+    // non-negotiated channels.
+    const key = this.restrictablePromiseKey(restriction);
     const {promise, resolve, reject} = Promise.withResolvers();
     Object.assign(promise, {resolve, reject});
-    return this.dataChannelPromises[name] = promise;
+    return this[key][name] = promise;
   }
 
   async reportConnection(doLogging = false) { // Update self with latest wrtc stats (and log them if doLogging true). See Object.assign for properties.
