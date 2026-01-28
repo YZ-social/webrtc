@@ -16,8 +16,7 @@
     }
   },
   "exports": {
-    ".": "./index.js",
-    "./router": "./routes/index.js"
+    ".": "./index.js"
   },
   "scripts": {
     "test": "npx jasmine",

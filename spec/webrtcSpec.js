@@ -5,7 +5,7 @@ describe("WebRTC", function () {
   const isBrowser = typeof(process) === 'undefined';
   let connections = [];
   describe("direct in-process signaling", function () {
-    function makePair({debug = false, delay = 0, index = 0} = {}) {
+    async function makePair({debug = false, delay = 0, index = 0} = {}) {
       //const configuration = { iceServers: [] };
       const configuration = { iceServers: WebRTC.iceServers };
       const A = new WebRTC({name: `A (impolite) ${index}`, polite: false, debug, configuration});
@@ -64,7 +64,7 @@ describe("WebRTC", function () {
 	promises.push(B.getDataChannelPromise('data', 'Theirs').then(sendingSetup));
       }
 	
-      const direct = true; // Does signal work direct/one-sided to the other? False makes a request that waits for a response.
+      const direct = false; // Does signal work direct/one-sided to the other? False makes a request that waits for a response.
       if (direct) {
 	A.signal = message => B.onSignal(message);
 	B.signal = message => A.onSignal(message);
@@ -72,6 +72,7 @@ describe("WebRTC", function () {
 	A.transferSignals = messages => B.respond(messages);
 	B.transferSignals = messages => A.respond(messages);
       }
+      await WebRTC.delay(1); // TODO: This is crazy, but without out, the FIRST connection in chrome hangs!
       return connections[index] = {A, B, bothOpen: Promise.all(promises)};
     }
     function standardBehavior(setup, {includeConflictCheck = isBrowser, includeSecondChannel = false} = {}) {
@@ -94,11 +95,12 @@ describe("WebRTC", function () {
         const start = Date.now();
         console.log(new Date(), 'start setup', nPairs, 'pairs');
         for (let index = 0; index < nPairs; index++) {
+	  console.log('setup', index);
           await setup({index});
         }
 	//await Promise.all(connections.map(connection => connection.bothOpen));
         console.log('end setup', Date.now() - start);
-      }, nPairs * 1e3);
+      }, nPairs * 2e3);
       for (let index = 0; index < nPairs; index++) {
         it(`connects ${index}.`, function () {
           const {A, B} = connections[index];
@@ -169,7 +171,7 @@ describe("WebRTC", function () {
       describe('non-negotiated', function () {
 	beforeAll(function () {console.log('one-sided non-negotiated'); });
         standardBehavior(async function ({index}) {
-          const {A, B, bothOpen} = makePair({index});
+          const {A, B, bothOpen} = await makePair({index});
           A.createChannel('data', {negotiated: false});
           await bothOpen;
         }, {includeConflictCheck: false, includeSecondChannel: false});
@@ -177,7 +179,7 @@ describe("WebRTC", function () {
       describe("negotiated on first signal", function () {
 	beforeAll(function () {console.log('one-sided negotiated'); });
         standardBehavior(async function ({index}) {
-          const {A, B, bothOpen} = makePair({index});
+          const {A, B, bothOpen} = await makePair({index});
           // There isn't really a direct, automated way to have one side open another with negotiated:true,
           // because the receiving RTCPeerConnection does not fire 'datachannel' when the sender was negotiated:true.
           // However, what the app can do is wake up and create an explicit createChannel when it first receives an
@@ -201,7 +203,7 @@ describe("WebRTC", function () {
         describe("impolite first", function () {
 	  beforeAll(function () {console.log('two-sided negotiated impolite-first'); });
           standardBehavior(async function ({index}) {
-            const {A, B, bothOpen} = makePair({index});     
+            const {A, B, bothOpen} = await makePair({index});
             A.createChannel("data", {negotiated: true});
             B.createChannel("data", {negotiated: true});
             await bothOpen;
@@ -210,7 +212,8 @@ describe("WebRTC", function () {
         describe("polite first", function () {
 	  beforeAll(function () {console.log('two-sided negotiated polite-first');});
           standardBehavior(async function ({index}) {
-            const {A, B, bothOpen} = makePair({index});
+            const {A, B, bothOpen} = await makePair({index,});
+	    //await WebRTC.delay(1); // TODO: Why is this needed?
             B.createChannel("data", {negotiated: true});
             A.createChannel("data", {negotiated: true});
             await bothOpen;
@@ -223,7 +226,8 @@ describe("WebRTC", function () {
         describe("impolite first", function () {
 	  beforeAll(function () {console.log('two-sided non-negotiated impolite-first');});
           standardBehavior(async function ({index}) {
-            const {A, B, bothOpen} = makePair({delay, index, debug});
+            const {A, B, bothOpen} = await makePair({delay, index, debug});
+	    //await WebRTC.delay(1); // TODO: Why is this needed?
             A.createChannel("data", {negotiated: false});
             B.createChannel("data", {negotiated: false});
             await bothOpen;
@@ -232,7 +236,7 @@ describe("WebRTC", function () {
         describe("polite first", function () {
 	  beforeAll(function () {console.log('two-sided non-negotiated polite-first');});
           standardBehavior(async function ({index}) {
-            const {A, B, bothOpen} = makePair({delay, index, debug});
+            const {A, B, bothOpen} = await makePair({delay, index, debug});
             B.createChannel("data", {negotiated: false});
             A.createChannel("data", {negotiated: false});
             await bothOpen;
