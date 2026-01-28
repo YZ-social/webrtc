@@ -116,9 +116,9 @@ export class WebRTC {
       if (this.explicitRollback && offerCollision) {
 	// The current wrtc for NodeJS doesn't yet support automatic rollback. We need to make it explicit.
 	await Promise.all([ // See https://blog.mozilla.org/webrtc/perfect-negotiation-in-webrtc/
-          this.pc?.setLocalDescription({type: 'rollback'})
+          this.pc.setLocalDescription({type: 'rollback'})
 	    .then(() => this.log('rollback ok'), e => this.log(this.name, 'ignoring error in rollback', e)),
-          this.pc?.setRemoteDescription(description)
+          this.pc.setRemoteDescription(description)
 	    .then(() => this.log('set offer ok'), e => this.log(this.name, 'ignoring error setRemoteDescription with rollback', e))
 	]);
 	this.rolledBack = true; // For diagnostics.
@@ -126,8 +126,8 @@ export class WebRTC {
       } else {
 	this.settingRemote = true;
 	try {
-	  await this.pc?.setRemoteDescription(description)
-	    .catch(e => this[offerCollision ? 'log' : 'flog'](this.name, 'ignoring error in setRemoteDescription while in state', this.pc?.signalingState, e));
+	  await this.pc.setRemoteDescription(description)
+	    .catch(e => this[offerCollision ? 'log' : 'flog'](this.name, 'ignoring error in setRemoteDescription while in state', this.pc.signalingState, e));
 	  if (offerCollision) this.rolledBack = true;
 	} finally {
 	  this.settingRemote = false;
@@ -135,21 +135,21 @@ export class WebRTC {
       }
 
       if (description.type === "offer") {
-	const answer = await this.pc?.createAnswer();
-        await answer && this.pc?.setLocalDescription(answer)
+	const answer = await this.pc.createAnswer();
+        await this.pc.setLocalDescription(answer)
 	  .catch(e => this.flog(this.name, 'ignoring error setLocalDescription of answer', e));
-        this.signal({ description: this.pc?.localDescription });
+        this.signal({ description: this.pc.localDescription });
       }
 
     } else if (candidate) {
       //this.log('add ice');
-      if (this.pc?.connectionState === 'closed' || !this.pc?.remoteDescription?.type) { // Adding ice without a proceessed offer/answer will crash. Log and drop the candidate.
-	this.log('icecandidate, connection:', this.pc?.connectionState, 'signaling:', this.pc?.signalingState, 'ice connection:', this.pc?.iceConnectionState, 'gathering:', this.pc?.iceGatheringState);
+      if (this.pc.connectionState === 'closed' || !this.pc.remoteDescription?.type) { // Adding ice without a proceessed offer/answer will crash. Log and drop the candidate.
+	this.log('icecandidate, connection:', this.pc.connectionState, 'signaling:', this.pc.signalingState, 'ice connection:', this.pc.iceConnectionState, 'gathering:', this.pc.iceGatheringState);
 	return;
       }
-      await this.pc?.addIceCandidate(candidate)
+      await this.pc.addIceCandidate(candidate)
 	.catch(e => {
-	  if (!this.ignoreOffer && this.pc?.connectionState !== 'closed') throw e;
+	  if (!this.ignoreOffer && this.pc.connectionState !== 'closed') throw e;
 	});
     }
   }

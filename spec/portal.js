@@ -56,7 +56,7 @@ if (cluster.isPrimary) { // Parent process with portal webserver through which c
   });
   function setup() {
     console.log(new Date(), 'launched bot', cluster.worker.id);
-    portal = new WebRTC({name: 'portal', info: false});
+    portal = new WebRTC({name: 'portal'});
     portal.getDataChannelPromise('data').then(dc => dc.send('Welcome!'));
     portal.closed.then(setup); // Without any explicit message, this is 15 seconds after the other end goes away.
   }
