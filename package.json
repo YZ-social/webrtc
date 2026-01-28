@@ -20,7 +20,8 @@
     "./router": "./routes/index.js"
   },
   "scripts": {
-    "test": "npx jasmine"
+    "test": "npx jasmine",
+    "testServer": "node spec/portal.js"
   },
   "dependencies": {
     "@roamhq/wrtc": "^0.9.1"
