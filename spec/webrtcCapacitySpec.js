@@ -6,7 +6,7 @@ describe("WebRTC capacity", function () {
 
   // Uncomment this line if running a stand-alone capacity test.
   // (And also likely comment out the import './webrtcSpec.js' in test.html.)
-  nNodes = WebRTC.suggestedInstancesLimit;
+  // nNodes = WebRTC.suggestedInstancesLimit;
 
   const isNodeJS = typeof(globalThis.process) !== 'undefined';
   let nodes = [];
