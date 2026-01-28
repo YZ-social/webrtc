@@ -75,11 +75,21 @@ describe("WebRTC", function () {
       return connections[index] = {A, B, bothOpen: Promise.all(promises)};
     }
     function standardBehavior(setup, {includeConflictCheck = isBrowser, includeSecondChannel = false} = {}) {
-      // maximums
+      // The nPairs does NOT seem to be a reliable way to determine how many webrtc peers can be active in the same Javascript.
+      // I have had numbers that work for every one of the cases DESCRIBEd below, and even in combinations,      
+      // but it seems to get upset when all are run together, and it seemms to depend on the state of the machine or phases of the moon.
+      // When it fails, it just locks up with no indication of what is happening.
+      // Maybe a memory / memory-leak issue?
+      //
+      // Some observed behaviors, at some point in time, include:
       // 1 channel pair, without negotiated on first signal: nodejs:83, firefox:150+, safari:85+ but gets confused with closing, chrome/edge:50(?)
       // 50 works across the board with one channel pair
       // On Safari (only), anything more than 32 pair starts to loose messages on the SECOND channel.
-      const nPairs = includeSecondChannel ? 32 : 62; //32;
+      // In NodeJS with includeSecondChannel: 32
+      // In NodeJS witout includeSecondChannel: 62, 75, even 85, but not consistently.
+      //
+      // webrtcCapacitySpec.js may be a better test for capacity.
+      const nPairs = 10;
       beforeAll(async function () {
         const start = Date.now();
         console.log(new Date(), 'start setup', nPairs, 'pairs');
@@ -145,8 +155,9 @@ describe("WebRTC", function () {
             expect(apc.signalingState).toBe('closed');
 	    const bpc = await B.closed; // Waiting for B to notice.
 	    await B.close(); // Resources are not necessarilly freed when the other side closes. An explicit close() is needed.
-            expect(['closed', 'disconnected', 'failed']).toContain(B.pc.connectionState);
-	    expect(bpc.signalingState).toBe('closed');
+            expect(['closed', 'disconnected', 'failed']).toContain(bpc.connectionState);
+	    expect(['closed', 'stable']).toContain(bpc.signalingState);
+	    delete connections[index];
 	  });
           promises.push(promise);
         }

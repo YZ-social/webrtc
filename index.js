@@ -18,6 +18,19 @@ export class WebRTC {
     // https://xirsys.com/pricing/ 500 MB/month (50 GB/month for $33/month)
     // Also https://www.npmjs.com/package/node-turn or https://meetrix.io/blog/webrtc/coturn/installation.html
   ];
+  cleanup() { // Attempt to allow everything to be garbage-collected.
+    if (!this.pc) return;
+    this.pc.onicecandidate = this.pc.ondatachannel = this.pc.onnegotiationneeded = this.pc.onconnectionstatechange = null;
+    delete this.pc;
+    delete this.dataChannelPromises;
+    delete this.dataChannelOursPromises;
+    delete this.dataChannelTheirsPromises;
+  }
+
+  // Number of instances at a time (if previous have been garbage collected), as of 1/27/26:
+  static suggestedInstancesLimit = globalThis.navigator.vendor?.startsWith('Apple') ? 95 : // Seems to be hardcoded?
+    globalThis.navigator.userAgent?.includes('Firefox') ? 190 :
+    200;
   constructor({configuration = {iceServers: WebRTC.iceServers}, ...properties}) {
     Object.assign(this, properties);
 
@@ -26,14 +39,17 @@ export class WebRTC {
     promise.resolve = resolve;
     this.closed = promise;
     // Safari doesn't fire signalingstatechange for closing activity.
-    this.pc.addEventListener('connectionstatechange', () => { // Only fires by action from other side.
-      const state = this.pc.connectionState;
+    this.pc.onconnectionstatechange = () => { // Only fires by action from other side.
+      const pc = this.pc;
+      if (!pc) return null;
+      const state = pc.connectionState;
       if (state === 'connected') return this.signalsReadyResolver?.();
       if (['new', 'connecting'].includes(state)) return null;
       // closed, disconnected, failed: resolve this.closed promise.
-      this.log('connectionstatechange signaling/connection:', this.pc.signalingState, state);
-      return resolve(this.pc);
-    });
+      this.log('connectionstatechange signaling/connection:', pc.signalingState, state);
+      this.cleanup();
+      return resolve(pc);
+    };
 
     this.connectionStartTime = Date.now();
     this.makingOffer = false;
@@ -62,8 +78,11 @@ export class WebRTC {
   }
   async close() {
     // Do not try to close or wait for data channels. It confuses Safari.
-    this.pc.close();
-    this.closed.resolve(this.pc); // We do not automatically receive 'connectionstatechange' when our side explicitly closes. (Only if the other does.)
+    const pc = this.pc;
+    if (!pc) return null;
+    pc.close();
+    this.closed.resolve(pc); // We do not automatically receive 'connectionstatechange' when our side explicitly closes. (Only if the other does.)
+    this.cleanup();
     return this.closed;
   }
   flog(...rest) {
@@ -80,6 +99,7 @@ export class WebRTC {
   explicitRollback = typeof(globalThis.process) !== 'undefined';
   async onSignal({ description, candidate }) {
     // Most of this and onnegotiationneeded is from https://developer.mozilla.org/en-US/docs/Web/API/WebRTC_API/Perfect_negotiation
+    if (!this.pc) return;
     if (description) {
       const offerCollision =
         description.type === "offer" &&
