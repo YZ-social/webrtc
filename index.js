@@ -1,5 +1,4 @@
-//import wrtc from '#wrtc'; // fixme
-const wrtc = (typeof(process) === 'undefined') ? globalThis : (await import('#wrtc')).default;
+import wrtc from '#wrtc';
 
 export class WebRTC {
   static iceServers = [ // Some default stun and even turn servers.

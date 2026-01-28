@@ -1,6 +1,6 @@
 {
   "name": "@yz-social/webrtc",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "description": "Streamlined portable webrtc management of p2p and client2server.",
   "keywords": [
     "webrtc",
@@ -12,7 +12,7 @@
   "imports": {
     "#wrtc": {
       "node": "@roamhq/wrtc",
-      "default": "./lib/browser-wrtc.js"
+      "default": "./browser-wrtc.js"
     }
   },
   "exports": {
@@ -27,7 +27,8 @@
   },
   "devDependencies": {
     "express": "^5.2.1",
-    "jasmine": "^5.12.0"
+    "jasmine": "^5.12.0",
+    "morgan": "^1.10.1"
   },
   "repository": {
     "type": "git",

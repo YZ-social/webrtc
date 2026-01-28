@@ -1,6 +1,7 @@
 import process from 'node:process';
 import cluster from 'node:cluster';
 import express from 'express';
+import logger from 'morgan';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { WebRTC } from '../index.js';
@@ -26,6 +27,7 @@ if (cluster.isPrimary) { // Parent process with portal webserver through which c
     });
   }
   const workers = Object.values(cluster.workers);
+  app.use(logger(':date[iso] :status :method :url :res[content-length] - :response-time ms'));
   app.use(express.json());
   app.use(express.static(path.resolve(__dirname, '..'))); // Serve files needed for testing browsers.
   app.post('/join/:to', async (req, res, next) => { // Handler for JSON POST requests that provide an array of signals and get signals back.
