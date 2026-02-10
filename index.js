@@ -80,7 +80,9 @@ export class WebRTC {
     // Do not try to close or wait for data channels. It confuses Safari.
     const pc = this.pc;
     if (!pc) return null;
-    pc.close();
+    const state = pc.connectionState;
+    if (state === 'connected' || state === 'failed') pc.close();
+    else this.flog("WebRTC close in unexpected state", state);
     this.closed.resolve(pc); // We do not automatically receive 'connectionstatechange' when our side explicitly closes. (Only if the other does.)
     this.cleanup();
     return this.closed;
