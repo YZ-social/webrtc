@@ -233,7 +233,8 @@ export class WebRTC {
     this.log('setupChannel:', label, dc.id, readyState, 'negotiated:', dc.negotiated);
     const kind = isTheirs ? 'Theirs' : 'Ours';
     dc.webrtc = this;
-    dc.onopen = async () => { // Idempotent (except for logging), if we do not bash dataChannePromises[label] multiple times.
+    dc.onopen = () => { // Idempotent (except for logging), if we do not bash dataChannePromises[label] multiple times.
+      dc.onopen = null;
       this.log('channel onopen:', label, dc.id, readyState, 'negotiated:', dc.negotiated);
       this[this.restrictablePromiseKey()][label]?.resolve(dc);
       this[this.restrictablePromiseKey(kind)][label]?.resolve(dc);
