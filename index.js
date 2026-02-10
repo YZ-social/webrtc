@@ -246,7 +246,6 @@ export class WebRTC {
     // This our chance to setupChannel, just as if we had called createChannel
     this.log('ondatachannel:', dc.label, dc.id, dc.readyState, dc.negotiated);
     this.setupChannel(dc);
-    dc.onopen(); // It had been opened before we setup, so invoke handler now.
   }
   channelId = 128; // Non-negotiated channel.id get assigned at open by the peer, starting with 0. This avoids conflicts.
   createChannel(name = 'data', {negotiated = false, id = this.channelId++, ...options} = {}) { // Explicitly create channel and set it up.
