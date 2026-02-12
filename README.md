@@ -4,7 +4,7 @@ A wrapper around either the browser's WebRTC, or around @roamhq/wrtc on NodeJS.
 
 Installing this package in NodeJS - i.e., with `npm install` in either this package's directory or in some other module that imports this - will install the @roamhq/wrtc dependency. Succesfully installing _that_ may require extra C++ tools on the host system. 
 
-For example, during the Windows installation of NodeJS (prior to installing this package), you may be asked whether to install the additional tools for VC++, including Chocalety. You should check the box to install them, and follow those directions. Installing those tools will occur in a separate window, prompt for proceeding, and may take a very long time to execute.
+For example, you probably need to have `git bash` or the like installed, and to execute the various `npm` commands within that. During the Windows installation of NodeJS (prior to installing this package), you may be asked whether to install the additional tools for VC++, including Chocalety. You should check the box to install them, and follow those directions. Installing those tools will occur in a separate window, prompt for proceeding, and may take a very long time to execute.
 
 
 ## Some Tweaks
