@@ -129,7 +129,7 @@ export class WebRTC {
 	this.settingRemote = true;
 	try {
 	  await this.pc.setRemoteDescription(description)
-	    .catch(e => this[offerCollision ? 'log' : 'flog'](this.name, 'ignoring error in setRemoteDescription while in state', this.pc.signalingState, e));
+	    .catch(e => this.log(this.name, 'ignoring error in setRemoteDescription while in state', this.pc.signalingState, e));
 	  if (offerCollision) this.rolledBack = true;
 	} finally {
 	  this.settingRemote = false;
@@ -139,7 +139,7 @@ export class WebRTC {
       if (description.type === "offer") {
 	const answer = await this.pc.createAnswer();
         await this.pc.setLocalDescription(answer)
-	  .catch(e => this.flog(this.name, 'ignoring error setLocalDescription of answer', e));
+	  .catch(e => this.log(this.name, 'ignoring error setLocalDescription of answer', e));
         this.signal({ description: this.pc.localDescription });
       }
 
@@ -238,8 +238,8 @@ export class WebRTC {
     dc.onopen = () => { // Idempotent (except for logging), if we do not bash dataChannePromises[label] multiple times.
       dc.onopen = null;
       this.log('channel onopen:', label, dc.id, readyState, 'negotiated:', dc.negotiated);
-      this[this.restrictablePromiseKey()][label]?.resolve(dc);
-      this[this.restrictablePromiseKey(kind)][label]?.resolve(dc);
+      this[this.restrictablePromiseKey()]?.[label]?.resolve(dc);
+      this[this.restrictablePromiseKey(kind)]?.[label]?.resolve(dc);
     };
     if (isTheirs) dc.onopen();
     return dc;

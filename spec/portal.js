@@ -1,3 +1,4 @@
+#!/usr/bin/env node
 import process from 'node:process';
 import cluster from 'node:cluster';
 import express from 'express';
@@ -13,6 +14,8 @@ import { WebRTC } from '../index.js';
 // For a more complete example, see https://github.com/YZ-social/kdht/blob/main/spec/portal.js
 
 const nPortals = parseInt(process.argv[2] || WebRTC.suggestedInstancesLimit);
+const perPortalDelay = parseInt(process.argv[3] || 1e3);
+const port = parseInt(process.argv[4] || 3000);
 
 if (cluster.isPrimary) { // Parent process with portal webserver through which clienta can bootstrap
   process.title = 'webrtc-test-portal';
@@ -25,6 +28,7 @@ if (cluster.isPrimary) { // Parent process with portal webserver through which c
     worker.on('message', signals => { // Message from a worker, in response to a POST.
       worker.requestResolver?.(signals);
     });
+    await new Promise(resolve => setTimeout(resolve, perPortalDelay));
   }
   const workers = Object.values(cluster.workers);
   app.use(logger(':date[iso] :status :method :url :res[content-length] - :response-time ms'));
@@ -32,7 +36,6 @@ if (cluster.isPrimary) { // Parent process with portal webserver through which c
   app.use(express.static(path.resolve(__dirname, '..'))); // Serve files needed for testing browsers.
   app.post('/join/:to', async (req, res, next) => { // Handler for JSON POST requests that provide an array of signals and get signals back.
     const {params, body} = req;
-    // Find the specifed worker, or pick one at random. TODO CLEANUP: Remove. We now use as separate /name/:label to pick one.
     const worker = workers[params.to];
     if (!worker) {
       console.warn('no worker', params.to);
@@ -48,7 +51,8 @@ if (cluster.isPrimary) { // Parent process with portal webserver through which c
 
     return res.send(response);
   });
-  app.listen(3000);
+  app.listen(port);
+  console.log(new Date(), 'listening on', port);
 } else {
   process.title = 'webrtc-test-bot-' + cluster.worker.id;
   let portal;
@@ -59,8 +63,15 @@ if (cluster.isPrimary) { // Parent process with portal webserver through which c
   function setup() {
     console.log(new Date(), 'launched bot', cluster.worker.id);
     portal = new WebRTC({name: 'portal'});
-    portal.getDataChannelPromise('data').then(dc => dc.send('Welcome!'));
-    portal.closed.then(setup); // Without any explicit message, this is 15 seconds after the other end goes away.
+    portal.getDataChannelPromise('data').then(dc => {
+      console.log('connected', cluster.worker.id);
+      dc.send('Welcome!');
+    });
+    portal.closed.then(() => {  // Without any explicit message, this is 15 seconds after the other end goes away.
+      console.log('disconnected', cluster.worker.id);
+      // Not needed for this test, but for other purposes:
+      // setup());
+    });
   }
   setup();
 }
