@@ -20,7 +20,7 @@ export class WebRTC {
   ];
   cleanup() { // Attempt to allow everything to be garbage-collected.
     if (!this.pc) return;
-    this.pc.onicecandidate = this.pc.ondatachannel = this.pc.onnegotiationneeded = this.pc.onconnectionstatechange = null;
+    this.pc.onicecandidate = this.pc.ondatachannel = this.pc.onnegotiationneeded = this.pc.onconnectionstatechange = this.pc.oniceconnectionstatechange = null;
     delete this.pc;
     delete this.dataChannelPromises;
     delete this.dataChannelOursPromises;
@@ -56,11 +56,27 @@ export class WebRTC {
     this.ignoreOffer = false;
 
     this.pc.onicecandidate = e => {
-      if (!e.candidate) return;
+      if (e.candidate === null) return;
       //if (this.pc.connectionState === 'connected') return; // Don't waste messages.  FIXME
+      // Including an empty string and of candidates marker.
+      // https://developer.mozilla.org/en-US/docs/Web/API/RTCPeerConnection/icecandidate_event#indicating_the_end_of_a_generation_of_candidates
       this.signal({ candidate: e.candidate });
     };
     this.pc.ondatachannel = e => this.ondatachannel(e.channel);
+    this.pc.oniceconnectionstatechange = () => {
+      if (!this.pc) return;
+      //this.flog('iceConnectionState', this.pc.iceConnectionState);
+      switch (this.pc.iceConnectionState) {
+      case 'completed':
+	this._resolveIceCompleted?.(true);
+	break;
+      case 'failed':
+	this.pc.restartIce();
+	break;
+      default:
+	;
+      }
+    };
     this.pc.onnegotiationneeded = async () => {
       try {
         this.makingOffer = true;
@@ -75,6 +91,23 @@ export class WebRTC {
         this.makingOffer = false;
       }
     };
+  }
+  async renegotiate() { // Trigger negotiationneeded and promise to resolve when completed. Used in testing.
+    this._resolveIceCompleted?.(false); // clearing old promise, if any.
+    const promise = this.iceConnected;
+    this.pc.restartIce();
+    return promise;
+  }
+  get iceConnected() { // Return a promise that resolves when iceConnectionState transitions to connected or completed. Used in testing.
+    // I haven't found a reliable way to detect when this happens. If our side was in iceConnectionState 'connected' (but not 'completed')
+    // before the renegotiation, then we might never go completed. For testing, what I've been doing is racing between this side resolving,
+    // the other side resolving, and a timeout of a few seconds. NodeJS almost always resolves with the first two, and browsers mostly use the last.
+    return this._iceConnected ||= new Promise(resolve => {
+      this._resolveIceCompleted = value => {
+	this._iceConnected = null;
+	resolve(value);
+      };
+    });
   }
   async close() {
     // Do not try to close or wait for data channels. It confuses Safari.
@@ -186,7 +219,7 @@ export class WebRTC {
     // If this peer is responding to the other side, we arrange our waiting respond() to continue with data for the other side.
     //
     // Otherwise, if this side is allowed to initiate an outbound network request, then this side must define transferSignals(signals)
-    // to promise otherSide.respond(signals). If so, we call it with all pending signals (including the new one) and handle the the
+    // to promise otherSide.respond(signals). If so, we call it with all pending signals (including the new one) and handle the
     // response. (Which latter may trigger more calls to signal() on our side.)
     //
     // Otherwise, we just remember the signal for some future respond() on our side.
@@ -297,6 +330,29 @@ export class WebRTC {
     const statsElapsed = now - this.connectionStartTime;
     Object.assign(this, {stats, transport, candidatePair, remote, protocol, candidateType, statsTime: now, statsElapsed});
     if (doLogging) console.info(this.name, 'connected', protocol, candidateType, (statsElapsed/1e3).toFixed(1));
+  }
+
+  static getPublicIP(stunServer = "stun:stun.l.google.com:19302") { // Promise external/WAN/public IP addresses for this device.
+    // This is the equivalent of whatismyip.com and the like, but using the same stun protocol that
+    // webrtc is using. Alas, the stun protocol itself is UDP and so cannot be fetched from a browser,
+    // so we use WebRTC itself.
+    return new Promise((resolve, reject) => {
+      const pc = new wrtc.RTCPeerConnection({iceServers: [{ urls: stunServer }] });
+      pc.createDataChannel("");
+      pc.onicecandidate = ({candidate}) => {
+	if (!candidate) return;
+	if (candidate.type === 'host') return;
+	// IWBNI we could gather all such addresses and let the app pick an ipV6 if desired.
+	// However, we don't always get two addresses, and I haven't been able to get a reliable indication of end of candidates.
+	resolve(candidate.address);
+	pc.onicecandidate = pc.onicecandidateerror = null;
+	pc.close();
+      };
+      pc.onicecandidateerror = reject;
+      pc.createOffer()
+	.then((offer) => pc.setLocalDescription(offer))
+	.catch(reject);
+    });
   }
 }
 
