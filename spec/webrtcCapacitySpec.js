@@ -6,8 +6,11 @@ function delay(ms) {
 }
 
 describe("WebRTC capacity", function () {
-  let nNodes = 20; // When running all webrtc tests at once, it is important to keep this low. (Memory leak?)
+  let nNodes = 75; // When running all webrtc tests at once, it is important to keep this low. (Memory leak?)
   let perPortalDelay = 1e3;
+  let portalSlopDelay = 2e3;
+  let perConnectionDelay = 100;
+  let connectionSlopDelay = 2e3;
   let port = 3000;
   let baseURL = `http://localhost:${port}`;
   // Alas, I can't seem to get more than about 150-160 nodes through ngrok, even on a machine that can handle 200 directly.
@@ -33,13 +36,14 @@ describe("WebRTC capacity", function () {
       const portalProcess = spawn('node', [path.resolve(__dirname, 'portal.js'), nNodes, perPortalDelay, port]);
       portalProcess.stdout.on('data', echo);
       portalProcess.stderr.on('data', echo);
-      await delay(perPortalDelay * (5 + nNodes));
+      await delay(perPortalDelay * nNodes + portalSlopDelay);
     }
 
     console.log(new Date(), 'creating', nNodes, 'nodes');
     for (let index = 0; index < nNodes; index++) {
       const node = nodes[index] = new WebRTC({name: 'node' + index});
       console.log('connecting', index);
+      node.nFetches = 0;
       node.transferSignals = messages => fetch(`${baseURL}/join/${index}`, {
 	method: 'POST',
 	headers: { 'Content-Type': 'application/json', 'Connection': 'close' },
@@ -49,6 +53,7 @@ describe("WebRTC capacity", function () {
 	  console.log('fetch', index, 'failed', response.status, response.statusText);
 	  return null;
 	}
+	node.nFetches++;
 	return response.json();
       });
       node.closed.then(() => console.log('closed', index)); // Just for debugging.
@@ -57,21 +62,33 @@ describe("WebRTC capacity", function () {
       node.createChannel('data', {negotiated: false});
       await dataOpened;
       console.log('opened', index);
-      if (!portalIsLocal) {
-	const maxConnectionsPerNode = 3;
-	const maxNgrokConnectionsPerSecond = 120 / 60;
-	const secondsPerNode = maxConnectionsPerNode / maxNgrokConnectionsPerSecond;
-	await delay(secondsPerNode * 1.5e3); // fudge factor milliseconds/second
-      }
+      // if (!portalIsLocal) {
+      // 	const maxConnectionsPerNode = 3;
+      // 	const maxNgrokConnectionsPerSecond = 120 / 60;
+      // 	const secondsPerNode = maxConnectionsPerNode / maxNgrokConnectionsPerSecond;
+      // 	await delay(secondsPerNode * 1.5e3); // fudge factor milliseconds/second
+      // }
     }
+    await delay(connectionSlopDelay);
     console.log(new Date(), 'finished setup');
-  }, nNodes * 4 * perPortalDelay);
+  }, nNodes * perPortalDelay + portalSlopDelay + nNodes * perConnectionDelay + connectionSlopDelay + 1e3);
   for (let index = 0; index < nNodes; index++) {
     it('opened connection ' + index, function () {      
       expect(nodes[index].pc.connectionState).toBe('connected');
     });
     it('got data ' + index, async function () {
       expect(await nodes[index].dataReceived).toBe('Welcome!');
+    });
+    it('resignals on restartIce ' + index, async function () {
+      const node = nodes[index];
+      expect(node.pc.iceConnectionState).toBe('completed');
+      node.nFetches = 0;
+      node.pc.restartIce();
+      await delay(100); // timing will vary
+      expect(node.pc.iceConnectionState).not.toBe('completed');
+      await delay(2e3); // timing will vary
+      expect(node.pc.iceConnectionState).toBe('completed');
+      expect(node.nFetches).toBeGreaterThan(0); // We will have re-signalled.
     });
   }
   afterAll(async function () {

@@ -6,7 +6,16 @@ describe("WebRTC", function () {
   let connections = [];
   describe("direct in-process signaling", function () {
     async function makePair({debug = false, delay = 0, index = 0} = {}) {
-      //const configuration = { iceServers: [] };
+      // Make a pair of WebRTC objects (in the same Javascript process) that transfer signals to each other by calling
+      // respond(signals) on the other of the pair. In a real application, the WebRTC instances would be in different
+      // processes (likely on different devices) and transferSignals would instead involve some sort of InterProcess
+      // Communication or network call, ultimately resulting in the same respond(signals) being called on the other
+      // end, and the resulting signals being transferred back.
+      //
+      // connections[index] will contain {A, B, bothOpen}, where A and B are the two WebRTC, and bothOpen resolves
+      // when A and B are both open (regardless of how they were triggered, which is different for each test).
+      // We also annotate the WebRTC with various flags used in the test, and arranges to set those when the channel
+      // named 'data' is opened.
       const configuration = { iceServers: WebRTC.iceServers };
       const A = new WebRTC({name: `A (impolite) ${index}`, polite: false, debug, configuration});
       const B = new WebRTC({name: `B (polite) ${index}`, polite: true, debug, configuration});
@@ -75,7 +84,11 @@ describe("WebRTC", function () {
       await WebRTC.delay(1); // TODO: This is crazy, but without out, the FIRST connection in chrome hangs!
       return connections[index] = {A, B, bothOpen: Promise.all(promises)};
     }
-    function standardBehavior(setup, {includeConflictCheck = isBrowser, includeSecondChannel = false} = {}) {
+    function standardBehavior(setup, {includeConflictCheck = isBrowser, includeSecondChannel = false, reneg = true} = {}) {
+      // Defines a set of tests, intended to be within a suite.
+      // A beforeAll is created which calls the given setup({index}) nPairs times. setup() is expected to makePair and
+      // open the data channel in some suite-specific way.
+
       // The nPairs does NOT seem to be a reliable way to determine how many webrtc peers can be active in the same Javascript.
       // I have had numbers that work for every one of the cases DESCRIBEd below, and even in combinations,      
       // but it seems to get upset when all are run together, and it seemms to depend on the state of the machine or phases of the moon.
@@ -91,6 +104,7 @@ describe("WebRTC", function () {
       //
       // webrtcCapacitySpec.js may be a better test for capacity.
       const nPairs = 10;
+
       beforeAll(async function () {
         const start = Date.now();
         console.log(new Date(), 'start setup', nPairs, 'pairs');
@@ -110,7 +124,7 @@ describe("WebRTC", function () {
           expect(B.theirs.readyState).toBe('open');
         });
         it(`receives ${index}.`, async function () {
-          const {A, B} = connections[index];    
+          const {A, B} = connections[index];
           await B.gotData;
           expect(B.receivedMessageCount).toBe(A.sentMessageCount);
           await A.gotData;	  
@@ -121,6 +135,34 @@ describe("WebRTC", function () {
           expect(A.sentMessageCount).toBe(1);
           expect(B.sentMessageCount).toBe(1);
         });
+	let waitBefore = Math.random() < 0.5;
+	it(`re-negotiates ${index} waiting to settle ${waitBefore ? 'before' : 'after'} sending.`, async function () {
+	  const {A, B} = connections[index];	    
+	  await A.gotData; // if receive test hasn't fired yet, the set setup might not yet have completed capturing the send count.
+	  await B.gotData;
+
+	  // Capture counts expected by the other tests.
+	  const {sentMessageCount:aSend, receivedMessageCount:aReceive} = A;
+	  const {sentMessageCount:bSend, receivedMessageCount:bReceive} = B;
+
+	  async function reneg(A, B) {
+	    let aIce = A.renegotiate();
+	    // We're supposed to be able to send and receive during renegotiation, so we flip a coin
+	    // as to whether the test will wait before sending or after.
+	    const timeout = 1e3; // NodeJS usually resolves with our side or sometimes the other going to completed, but not browsers.
+	    if (waitBefore) await Promise.race([aIce, B.iceConnected, WebRTC.delay(timeout)]);
+	    const gotData = new Promise(resolve => B.ours.addEventListener('message', e => resolve(e.data)));
+	    A.theirs.send('after');
+	    expect(await gotData).toBe('after');
+	    if (!waitBefore) await Promise.race([aIce, B.iceConnected, WebRTC.delay(timeout)]);
+	  }
+	  await reneg(A, B);
+	  await reneg(B, A);
+
+	  // Restore counts expected by the other tests.
+	  Object.assign(A, {sentMessageCount:aSend, receivedMessageCount:aReceive});
+	  Object.assign(B, {sentMessageCount:bSend, receivedMessageCount:bReceive});	  
+	}, 10e3);
 	if (includeSecondChannel) {
 	  it(`handles second channel ${index}.`, async function () {
 	    const {A, B} = connections[index];
@@ -155,6 +197,9 @@ describe("WebRTC", function () {
 	  let promise = A.close().then(async apc => {
             expect(apc.connectionState).toBe('closed'); // Only on the side that explicitly closed.
             expect(apc.signalingState).toBe('closed');
+
+	    await B.close(); // fixme: B will try to reconnect unless we tell it to stop.
+
 	    const bpc = await B.closed; // Waiting for B to notice.
 	    await B.close(); // Resources are not necessarilly freed when the other side closes. An explicit close() is needed.
             expect(['closed', 'disconnected', 'failed']).toContain(bpc.connectionState);
@@ -168,6 +213,12 @@ describe("WebRTC", function () {
       }, Math.max(30e3, 1e3 * nPairs));
     }
     describe("one side opens", function () {
+      // One of each pair definitively initiates the connection that the other side was waiting for. This can happen
+      // when one peer contacts another out of the blue, or when a client contacts a server or portal.
+      // We test the usual negotiated=true case (where the initiator names the bidirectional channel and the app
+      // arranges for the reciever to actively create a channel with the same app-specific name,
+      // and the negotiated=false case.
+
       describe('non-negotiated', function () {
 	beforeAll(function () {console.log('one-sided non-negotiated'); });
         standardBehavior(async function ({index}) {
@@ -199,6 +250,18 @@ describe("WebRTC", function () {
     });
 
     describe("simultaneous two-sided", function () {
+      // The two sides both attempt to initiate a connection at the same time. This can happen betwen homogeneous peers.
+      // There is a matrix of four possibilities:
+      //
+      // negotiated=true - the usual case, in which the application expects both sides to be be created with the same
+      //   app-specific bidirectional channel name...
+      // negotiatedl=false - meaning that each side is going to create it's own sending channel which will automatically
+      //   have a distinct index (even if the channel name is the same).
+      //
+      // Within these, we test with the "polite" side starting first, or starting second. On the network, we cannot
+      // coordinate which app instance will attempt to initiate connection, but we can arrange for any pair to agree
+      // on which of the two is the "polite" one (e.g., by sort order of their names or some such).
+
       describe("negotiated single full-duplex-channel", function () {
         describe("impolite first", function () {
 	  beforeAll(function () {console.log('two-sided negotiated impolite-first'); });
@@ -207,7 +270,7 @@ describe("WebRTC", function () {
             A.createChannel("data", {negotiated: true});
             B.createChannel("data", {negotiated: true});
             await bothOpen;
-          });
+          }, {reneg: true});
         });
         describe("polite first", function () {
 	  beforeAll(function () {console.log('two-sided negotiated polite-first');});
@@ -217,10 +280,10 @@ describe("WebRTC", function () {
             B.createChannel("data", {negotiated: true});
             A.createChannel("data", {negotiated: true});
             await bothOpen;
-          });
+          }, {reneg: true});
         });
       });
-      describe("non-negotiated dual half-duplex channels", function () {
+      describe("non-negotiated dual half-duplex channels", function () { // fixme: sometimes fail to renegotiate
         const delay = 200;
 	const debug = false;
         describe("impolite first", function () {
