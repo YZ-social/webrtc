@@ -1,6 +1,6 @@
 {
   "name": "@yz-social/webrtc",
-  "version": "0.1.6",
+  "version": "0.1.7",
   "description": "Streamlined portable webrtc management of p2p and client2server.",
   "keywords": [
     "webrtc",
@@ -23,7 +23,7 @@
     "testServer": "node spec/portal.js"
   },
   "dependencies": {
-    "@roamhq/wrtc": "^0.9.1"
+    "@roamhq/wrtc": "^0.10.0"
   },
   "devDependencies": {
     "express": "^5.2.1",
@@ -36,5 +36,5 @@
   },
   "publishConfig": {
     "registry": "https://registry.npmjs.org"
-  }  
+  }
 }
