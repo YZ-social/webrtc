@@ -169,7 +169,7 @@ export class WebRTC {
 	}
       }
 
-      if (description.type === "offer") {
+      if (description.type === "offer" && this.pc) {
 	const answer = await this.pc.createAnswer();
         await this.pc.setLocalDescription(answer)
 	  .catch(e => this.log(this.name, 'ignoring error setLocalDescription of answer', e));
