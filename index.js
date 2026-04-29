@@ -162,14 +162,14 @@ export class WebRTC {
 	this.settingRemote = true;
 	try {
 	  await this.pc.setRemoteDescription(description)
-	    .catch(e => this.log(this.name, 'ignoring error in setRemoteDescription while in state', this.pc.signalingState, e));
+	    .catch(e => this.log(this.name, 'ignoring error in setRemoteDescription while in state', this.pc?.signalingState, e));
 	  if (offerCollision) this.rolledBack = true;
 	} finally {
 	  this.settingRemote = false;
 	}
       }
 
-      if (description.type === "offer" && this.pc) {
+      if (description.type === "offer" && this.pc && ['have-remote-offer', 'have-local-pranswer'].includes(this.pc.signalingState)) {
 	const answer = await this.pc.createAnswer();
         await this.pc.setLocalDescription(answer)
 	  .catch(e => this.log(this.name, 'ignoring error setLocalDescription of answer', e));
