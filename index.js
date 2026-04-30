@@ -169,7 +169,7 @@ export class WebRTC {
 	}
       }
 
-      if (description.type === "offer" && this.pc && ['have-remote-offer', 'have-local-pranswer'].includes(this.pc.signalingState)) {
+      if (description.type === "offer" && this.pc && ['have-remote-offer', 'have-local-pranswer'].includes(this.pc?.signalingState)) {
 	const answer = await this.pc.createAnswer();
         await this.pc.setLocalDescription(answer)
 	  .catch(e => this.log(this.name, 'ignoring error setLocalDescription of answer', e));
@@ -178,13 +178,13 @@ export class WebRTC {
 
     } else if (candidate) {
       //this.log('add ice');
-      if (this.pc.connectionState === 'closed' || !this.pc.remoteDescription?.type) { // Adding ice without a proceessed offer/answer will crash. Log and drop the candidate.
-	this.log('icecandidate, connection:', this.pc.connectionState, 'signaling:', this.pc.signalingState, 'ice connection:', this.pc.iceConnectionState, 'gathering:', this.pc.iceGatheringState);
+      if (this.pc?.connectionState === 'closed' || !this.pc?.remoteDescription?.type) { // Adding ice without a proceessed offer/answer will crash. Log and drop the candidate.
+	this.log('icecandidate, connection:', this.pc?.connectionState, 'signaling:', this.pc?.signalingState, 'ice connection:', this.pc?.iceConnectionState, 'gathering:', this.pc?.iceGatheringState);
 	return;
       }
       await this.pc.addIceCandidate(candidate)
 	.catch(e => {
-	  if (!this.ignoreOffer && this.pc.connectionState !== 'closed') throw e;
+	  if (!this.ignoreOffer && this.pc?.connectionState !== 'closed') throw e;
 	});
     }
   }
