@@ -4,14 +4,14 @@ const wrtc = (typeof(process) === 'undefined') ? globalThis : (await import('#wr
 export class WebRTC {
   static iceServers = [ // Some default stun and even turn servers.
 
-    { urls: 'stun:stun.l.google.com:19302'},
+    { urls: 'stun:stun.l.google.com:19302'}, // As of 5/5/26, Edge and Firefox still require iceServers to be non-empty, even for localhost peers.
     // https://freestun.net/  Currently 50 KBit/s. (2.5 MBit/s fors $9/month)
-    { urls: 'stun:freestun.net:3478' },
+    //{ urls: 'stun:freestun.net:3478' },
 
     //{ urls: 'turn:freestun.net:3478', username: 'free', credential: 'free' },
     // Presumably traffic limited. Can generate new credentials at https://speed.cloudflare.com/turn-creds
     // Also https://developers.cloudflare.com/calls/ 1 TB/month, and $0.05 /GB after that.
-    { urls: 'turn:turn.speed.cloudflare.com:50000', username: '826226244cd6e5edb3f55749b796235f420fe5ee78895e0dd7d2baa45e1f7a8f49e9239e78691ab38b72ce016471f7746f5277dcef84ad79fc60f8020b132c73', credential: 'aba9b169546eb6dcc7bfb1cdf34544cf95b5161d602e3b5fa7c8342b2e9802fb' }
+    //{ urls: 'turn:turn.speed.cloudflare.com:50000', username: '826226244cd6e5edb3f55749b796235f420fe5ee78895e0dd7d2baa45e1f7a8f49e9239e78691ab38b72ce016471f7746f5277dcef84ad79fc60f8020b132c73', credential: 'aba9b169546eb6dcc7bfb1cdf34544cf95b5161d602e3b5fa7c8342b2e9802fb' }
 
     // See also:
     // https://fastturn.net/ Currently 500MB/month? (25 GB/month for $9/month)
@@ -20,7 +20,7 @@ export class WebRTC {
   ];
   cleanup() { // Attempt to allow everything to be garbage-collected.
     if (!this.pc) return;
-    this.pc.onicecandidate = this.pc.ondatachannel = this.pc.onnegotiationneeded = this.pc.onconnectionstatechange = this.pc.oniceconnectionstatechange = null;
+    this.pc.onicecandidate = this.pc.ondatachannel = this.pc.onnegotiationneeded = this.pc.onconnectionstatechange = this.pc.oniceconnectionstatechange = this.pc.onicecandidateerror = null;
     delete this.pc;
     delete this.dataChannelPromises;
     delete this.dataChannelOursPromises;
@@ -28,9 +28,11 @@ export class WebRTC {
   }
 
   // Number of instances at a time (if previous have been garbage collected), as of 1/27/26:
-  static suggestedInstancesLimit = globalThis.navigator.vendor?.startsWith('Apple') ? 95 : // Seems to be hardcoded?
-    globalThis.navigator.userAgent?.includes('Firefox') ? 190 :
-    200;
+  static suggestedInstancesLimit =
+    globalThis.navigator.vendor?.startsWith('Apple') ? 150 : // Safari will open 256, but it won't reliably keep them all open at once.
+    globalThis.navigator.userAgent?.includes('Firefox') ? 150 : // I can sometimes get maybe a dozen more, but not with refresh.
+    (typeof(globalThis.process) !== 'undefined') ? 249 :  // NodeJS
+    256;
   constructor({configuration = {iceServers: WebRTC.iceServers}, ...properties}) {
     Object.assign(this, properties);
 
@@ -63,9 +65,12 @@ export class WebRTC {
       this.signal({ candidate: e.candidate });
     };
     this.pc.ondatachannel = e => this.ondatachannel(e.channel);
+    this.pc.onicecandidateerror = error => {
+      const {errorCode, errorText, url, address, port} = error;
+      console.error(errorText, {errorCode, url, address, port});
+    };
     this.pc.oniceconnectionstatechange = () => {
       if (!this.pc) return;
-      //this.flog('iceConnectionState', this.pc.iceConnectionState);
       switch (this.pc.iceConnectionState) {
       case 'completed':
 	this._resolveIceCompleted?.(true);

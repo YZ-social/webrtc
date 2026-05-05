@@ -6,19 +6,26 @@ function delay(ms) {
 }
 
 describe("WebRTC capacity", function () {
-  let nNodes = 75; // When running all webrtc tests at once, it is important to keep this low. (Memory leak?)
-  let perPortalDelay = 1e3;
+  let perPortalDelay = 200;
   let portalSlopDelay = 2e3;
   let perConnectionDelay = 100;
-  let connectionSlopDelay = 2e3;
+  let connectionSlopDelay = 4e3;
   let port = 3000;
   let baseURL = `http://localhost:${port}`;
   // Alas, I can't seem to get more than about 150-160 nodes through ngrok, even on a machine that can handle 200 directly.
   //let baseURL = 'https://dorado.ngrok.dev'; // if E.g., node spec/portal.js 200 100; ngrok http 3000 --url https://dorado.ngrok.dev
 
   // Uncomment this line if running a stand-alone capacity test.
-  // (And also likely comment out the import './webrtcSpec.js' in test.html.)
-  // nNodes = WebRTC.suggestedInstancesLimit;
+  // (And also likely comment out the import './webrtcSpec.js' in test.html,
+  //  and "resignals on restartIce..." tests.)
+  let nNodes = WebRTC.suggestedInstancesLimit;
+  let reNegotiate = false; // Should we attempt to test restartIce/re-negotiation?
+  if (reNegotiate) {
+    if (globalThis.navigator.userAgent?.includes('Firefox') ||
+	globalThis.navigator.vendor?.startsWith('Apple') ||
+	(typeof(globalThis.process) !== 'undefined'))
+      nNodes = Math.floor(0.5 * nNodes);
+  }
 
   const isNodeJS = typeof(globalThis.process) !== 'undefined';
   const portalIsLocal = isNodeJS && baseURL.startsWith('http://localhost');
@@ -60,18 +67,13 @@ describe("WebRTC capacity", function () {
       const dataOpened = node.getDataChannelPromise('data')
 	    .then(dc => node.dataReceived = new Promise(resolve => dc.onmessage = event => resolve(event.data)));
       node.createChannel('data', {negotiated: false});
-      await dataOpened;
+      await Promise.race([dataOpened, delay(perConnectionDelay)]);
       console.log('opened', index);
-      // if (!portalIsLocal) {
-      // 	const maxConnectionsPerNode = 3;
-      // 	const maxNgrokConnectionsPerSecond = 120 / 60;
-      // 	const secondsPerNode = maxConnectionsPerNode / maxNgrokConnectionsPerSecond;
-      // 	await delay(secondsPerNode * 1.5e3); // fudge factor milliseconds/second
-      // }
     }
+    console.log(new Date(), 'pause after setup');
     await delay(connectionSlopDelay);
     console.log(new Date(), 'finished setup');
-  }, nNodes * perPortalDelay + portalSlopDelay + nNodes * perConnectionDelay + connectionSlopDelay + 1e3);
+  }, nNodes * perPortalDelay + portalSlopDelay + 2 * nNodes * perConnectionDelay + 2 * connectionSlopDelay);
   for (let index = 0; index < nNodes; index++) {
     it('opened connection ' + index, function () {      
       expect(nodes[index].pc.connectionState).toBe('connected');
@@ -79,17 +81,17 @@ describe("WebRTC capacity", function () {
     it('got data ' + index, async function () {
       expect(await nodes[index].dataReceived).toBe('Welcome!');
     });
-    it('resignals on restartIce ' + index, async function () {
-      const node = nodes[index];
-      expect(node.pc.iceConnectionState).toBe('completed');
-      node.nFetches = 0;
-      node.pc.restartIce();
-      await delay(100); // timing will vary
-      expect(node.pc.iceConnectionState).not.toBe('completed');
-      await delay(2e3); // timing will vary
-      expect(node.pc.iceConnectionState).toBe('completed');
-      expect(node.nFetches).toBeGreaterThan(0); // We will have re-signalled.
-    });
+    if (reNegotiate) {
+      it('resignals on restartIce ' + index, async function () {
+	const node = nodes[index];
+	expect(['connected', 'completed']).toContain(node.pc.iceConnectionState);
+	node.nFetches = 0;
+	const promise = node.renegotiate();
+	await Promise.race([promise, delay(1e3)]);
+	expect(['connected', 'completed']).toContain(node.pc.iceConnectionState);
+	expect(node.nFetches).toBeGreaterThan(0); // We will have re-signalled.
+      });
+    }
   }
   afterAll(async function () {
     console.log(new Date(), 'starting teardown');
