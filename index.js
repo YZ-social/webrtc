@@ -30,7 +30,7 @@ export class WebRTC {
   // Number of instances at a time (if previous have been garbage collected), as of 1/27/26:
   static suggestedInstancesLimit =
     globalThis.navigator.vendor?.startsWith('Apple') ? 150 : // Safari will open 256, but it won't reliably keep them all open at once.
-    globalThis.navigator.userAgent?.includes('Firefox') ? 150 : // I can sometimes get maybe a dozen more, but not with refresh.
+    globalThis.navigator.userAgent?.includes('Firefox') ? 150 : // 256 on an M5 chip. On an i9 MBP, I can sometimes get more than 150, but not with refresh.
     (typeof(globalThis.process) !== 'undefined') ? 249 :  // NodeJS
     256;
   constructor({configuration = {iceServers: WebRTC.iceServers}, ...properties}) {
@@ -67,7 +67,7 @@ export class WebRTC {
     this.pc.ondatachannel = e => this.ondatachannel(e.channel);
     this.pc.onicecandidateerror = error => {
       const {errorCode, errorText, url, address, port} = error;
-      console.error(errorText, {errorCode, url, address, port});
+      this.flog(`${errorCode}: ${errorText || '(ice failure)'} ${address}:${port} @${url}`);
     };
     this.pc.oniceconnectionstatechange = () => {
       if (!this.pc) return;
@@ -330,11 +330,11 @@ export class WebRTC {
       return;
     }
     const remote = stats.get(candidatePair.remoteCandidateId);
-    const {protocol, candidateType} = remote;
+    const {protocol, candidateType, address} = remote;
     const now = Date.now();
     const statsElapsed = now - this.connectionStartTime;
     Object.assign(this, {stats, transport, candidatePair, remote, protocol, candidateType, statsTime: now, statsElapsed});
-    if (doLogging) console.info(this.name, 'connected', protocol, candidateType, (statsElapsed/1e3).toFixed(1));
+    if (doLogging) console.info(this.name, 'connected', protocol, candidateType, address, (statsElapsed/1e3).toFixed(1));
   }
 
   static getPublicIP(stunServer = "stun:stun.l.google.com:19302") { // Promise external/WAN/public IP addresses for this device.
