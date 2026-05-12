@@ -67,7 +67,7 @@ export class WebRTC {
     this.pc.ondatachannel = e => this.ondatachannel(e.channel);
     this.pc.onicecandidateerror = error => {
       const {errorCode, errorText, url, address, port} = error;
-      this.flog(`${errorCode}: ${errorText || '(ice failure)'} ${address}:${port} @${url}`);
+      this.log(`${errorCode}: ${errorText || '(ice failure)'} ${address}:${port} @${url}`);
     };
     this.pc.oniceconnectionstatechange = () => {
       if (!this.pc) return;
@@ -203,13 +203,13 @@ export class WebRTC {
   pendingSignals = [];
   responseSerializer = Promise.resolve();
   async respond(signals = []) { // Apply a list of signals, and promise a list of responding signals as soon as any are available, or empty list when connected
-    // This is used by a peer that is receiving signals in an out-of-band network request, and witing for a response. (Compare transferSignals.)
+    // This is used by a peer that is receiving signals in an out-of-band network request, and waiting for a response. (Compare transferSignals.)
     return this.responseSerializer = this.responseSerializer.then(async () => {
       this.log('respond', signals.length, 'signals');
-      const {promise, resolve} = Promise.withResolvers;
+      const {promise, resolve} = Promise.withResolvers();
       this.signalsReadyResolver = resolve;
       await this.onSignals(signals);
-      await promise;
+      if (!this.pendingSignals.length) await promise;
       this.signalsReadyResolver = null;
       return this.collectPendingSignals();
     });
