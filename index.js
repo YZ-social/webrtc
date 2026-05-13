@@ -26,6 +26,13 @@ export class WebRTC {
     delete this.dataChannelOursPromises;
     delete this.dataChannelTheirsPromises;
   }
+  reportStates(label) {
+    const pc = this.pc;
+    const sctp = pc?.sctp;
+    const transport = sctp?.transport;
+    const iceTransport = transport?.iceTransport;
+    this.flog(label, 'connectionState:', pc?.connectionState, 'signalingState:', pc?.signalingState, 'iceConnectionState:', pc?.iceConnectionState, 'iceGatheringState:', pc?.iceGatheringState, 'transport state:', sctp?.state, transport?.state, iceTransport?.state, iceTransport?.gatheringState);
+  }
 
   // Number of instances at a time (if previous have been garbage collected), as of 1/27/26:
   static suggestedInstancesLimit =
@@ -46,7 +53,7 @@ export class WebRTC {
       if (!pc) return null;
       const state = pc.connectionState;
       if (state === 'connected') return this.signalsReadyResolver?.();
-      if (['new', 'connecting'/*, 'failed'*/].includes(state)) return null; // On failed, iceconnectionstatechange will restartIce.
+      if (['new', 'connecting', 'failed'].includes(state)) return null; // On failed, iceconnectionstatechange will restartIce.
       // closed, disconnected: resolve this.closed promise.
       this.cleanup();
       return resolve(pc);
@@ -75,7 +82,7 @@ export class WebRTC {
 	this._resolveIceCompleted?.(true);
 	break;
       case 'failed': // This doesn't mean the connection is broken. It could just be looking for a better transport.
-	this.pc.restartIce();
+	this.renegotiate();
 	break;
       default:
 	;
@@ -97,7 +104,7 @@ export class WebRTC {
     };
   }
   async renegotiate() { // Trigger negotiationneeded and promise to resolve when completed. Used in testing.
-    this._resolveIceCompleted?.(false); // clearing old promise, if any.
+    if (this._iceConnected) return this._iceConnected;
     const promise = this.iceConnected;
     this.pc.restartIce();
     return promise;
