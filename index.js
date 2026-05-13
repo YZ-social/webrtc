@@ -333,9 +333,9 @@ export class WebRTC {
     const {protocol, candidateType, address, port} = remote;
     const now = Date.now();
     const statsElapsed = now - this.connectionStartTime;
-    //const local = stats.get(candidatePair.localCandidateId);
+    const local = stats.get(candidatePair.localCandidateId);
     Object.assign(this, {stats, transport, candidatePair, remote, protocol, candidateType, statsTime: now, statsElapsed});
-    //if (doLogging) console.info(new Date(), this.name, this.pc?.connectionState, protocol, candidateType, `${local.address}:${local.port}=>${address}:${port}`, (statsElapsed/1e3).toFixed(1));
+    if (doLogging) console.info(new Date(), this.name, this.pc?.connectionState, protocol, candidateType, `${local.address}:${local.port}=>${address}:${port}`, (statsElapsed/1e3).toFixed(1));
   }
 
   static getPublicIP(stunServer = "stun:stun.l.google.com:19302") { // Promise external/WAN/public IP addresses for this device.
