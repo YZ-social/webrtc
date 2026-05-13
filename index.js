@@ -46,9 +46,8 @@ export class WebRTC {
       if (!pc) return null;
       const state = pc.connectionState;
       if (state === 'connected') return this.signalsReadyResolver?.();
-      if (['new', 'connecting'].includes(state)) return null;
-      // closed, disconnected, failed: resolve this.closed promise.
-      this.log('connectionstatechange signaling/connection:', pc.signalingState, state);
+      if (['new', 'connecting'/*, 'failed'*/].includes(state)) return null; // On failed, iceconnectionstatechange will restartIce.
+      // closed, disconnected: resolve this.closed promise.
       this.cleanup();
       return resolve(pc);
     };
@@ -75,7 +74,7 @@ export class WebRTC {
       case 'completed':
 	this._resolveIceCompleted?.(true);
 	break;
-      case 'failed':
+      case 'failed': // This doesn't mean the connection is broken. It could just be looking for a better transport.
 	this.pc.restartIce();
 	break;
       default:
@@ -206,7 +205,8 @@ export class WebRTC {
     // This is used by a peer that is receiving signals in an out-of-band network request, and waiting for a response. (Compare transferSignals.)
     return this.responseSerializer = this.responseSerializer.then(async () => {
       this.log('respond', signals.length, 'signals');
-      const {promise, resolve} = Promise.withResolvers();
+      const {promise, resolve} = Promise.withResolvers(); // FIXME: this breaks Firefox.
+      //const {promise, resolve} = {}; // FIXME: tests "pass" on Firefox with this version.
       this.signalsReadyResolver = resolve;
       await this.onSignals(signals);
       if (!this.pendingSignals.length) await promise;
@@ -330,11 +330,12 @@ export class WebRTC {
       return;
     }
     const remote = stats.get(candidatePair.remoteCandidateId);
-    const {protocol, candidateType, address} = remote;
+    const {protocol, candidateType, address, port} = remote;
     const now = Date.now();
     const statsElapsed = now - this.connectionStartTime;
+    //const local = stats.get(candidatePair.localCandidateId);
     Object.assign(this, {stats, transport, candidatePair, remote, protocol, candidateType, statsTime: now, statsElapsed});
-    if (doLogging) console.info(this.name, 'connected', protocol, candidateType, address, (statsElapsed/1e3).toFixed(1));
+    //if (doLogging) console.info(new Date(), this.name, this.pc?.connectionState, protocol, candidateType, `${local.address}:${local.port}=>${address}:${port}`, (statsElapsed/1e3).toFixed(1));
   }
 
   static getPublicIP(stunServer = "stun:stun.l.google.com:19302") { // Promise external/WAN/public IP addresses for this device.
